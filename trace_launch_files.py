@@ -26,7 +26,7 @@ class LaunchRootParser(object):
 
         include_elements = launch_root.findall('include')
         for include_element in include_elements:
-            self.includes.append(self.parse_include(include_element))
+            self.parse_include(include_element)
             pass
 
         group_elements = launch_root.findall('group')
@@ -37,7 +37,9 @@ class LaunchRootParser(object):
 
     def parse_include(self, include_element):
         include_file = self.parse_xml_value(include_element.get('file'))
-        return LaunchFileParser(include_file)
+        if include_file is not None:
+            self.includes.append(LaunchFileParser(include_file))
+        return
 
     def parse_group(self, group_element):
         ns = group_element.get('ns')
@@ -73,8 +75,8 @@ class LaunchRootParser(object):
             package_name = match.group(1)
             try:
                 package_path = get_pkg_dir(package_name)
-            except InvalidROSPkgException as e:
-                print('package %s is invalid: %s' % (package_name, e))
+            except InvalidROSPkgException:
+                print('cannot find package %s' % (package_name))
                 return None
 
             value_string = re.sub(r'\$\(find \S+\)', package_path,
