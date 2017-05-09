@@ -3,7 +3,8 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-from roslib.packages import find_resource, get_pkg_dir, InvalidROSPkgException
+from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
+                            InvalidROSPkgException
 from rospkg import ResourceNotFound
 
 
@@ -136,7 +137,14 @@ class LaunchFileParser(LaunchRootParser):
         except IOError as e:
             print('IOError parsing %s: %s' % (launch_file_path, e))
             sys.exit(1)
-        print('parsing launch file %s' % launch_file_path)
+        self.path = launch_file_path
+        self.package_name = get_dir_pkg(launch_file_path)[1]
+        if self.package_name is None:
+            print('no package found for file %s' % (self.path))
+            self.package_name = ''
+            pass
+        print('\nparsing launch file %s' % launch_file_path)
+        print('package: %s' % self.package_name)
         super(LaunchFileParser, self).__init__(launch_root, arg_dict=arg_dict)
         pass
     pass
