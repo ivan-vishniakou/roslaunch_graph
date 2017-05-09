@@ -8,10 +8,10 @@ from rospkg import ResourceNotFound
 
 
 class LaunchRootParser(object):
-    def __init__(self, launch_root):
+    def __init__(self, launch_root, arg_dict={}):
         self.includes = []
         self.groups = {}
-        self.arg_dict = {}
+        self.arg_dict = arg_dict
         self.conditions = {}
         self.meaningless_conditions = []
         self.parse_launch_root(launch_root)
@@ -20,8 +20,14 @@ class LaunchRootParser(object):
     def parse_launch_root(self, launch_root):
         arguments = launch_root.findall('arg')
         for arg in arguments:
-            name, value = self.parse_argument(arg)
-            self.arg_dict[name] = value
+            name, default_value, value = self.parse_argument(arg)
+            if default_value is None:
+                print('  launch root argument \'%s\' does not have a default'
+                      ' value' % name)
+                continue
+            if name not in self.arg_dict:
+                self.arg_dict[name] = default_value
+                pass
             pass
 
         include_elements = launch_root.findall('include')
@@ -38,7 +44,18 @@ class LaunchRootParser(object):
     def parse_include(self, include_element):
         include_file = self.parse_xml_value(include_element.get('file'))
         if include_file is not None:
-            self.includes.append(LaunchFileParser(include_file))
+            include_arguments = include_element.findall('arg')
+            arg_dict = {}
+            for arg in include_arguments:
+                name, default_value, value = self.parse_argument(arg)
+                if default_value is not None:
+                    print('  include argument %s  use \'default\' key' % name)
+                    pass
+                if value is not None:
+                    arg_dict[name] = value
+                    pass
+                pass
+            self.includes.append(LaunchFileParser(include_file, arg_dict))
         return
 
     def parse_group(self, group_element):
@@ -46,10 +63,12 @@ class LaunchRootParser(object):
         group_key = len(self.groups.keys())
         if ns is not None:
             group_key = ns
-        self.groups[group_key] = self.parse_launch_root(group_element)
+        self.groups[group_key] = LaunchRootParser(group_element)
         pass
 
     def parse_xml_value(self, value_string):
+        if value_string is None:
+            return None
         value_string = self.parse_env_keyword(value_string)
         value_string = self.parse_find_keyword(value_string)
         value_string = self.parse_arg_keyword(value_string)
@@ -60,7 +79,7 @@ class LaunchRootParser(object):
         if match is not None:
             arg_name = match.group(1)
             if arg_name not in self.arg_dict:
-                print('arg not defined: %s' % (arg_name))
+                print('  arg not defined: %s' % (arg_name))
                 return None
             string =  re.sub(r'\$\(arg \S+\)', self.arg_dict[arg_name], string)
         return string
@@ -96,31 +115,29 @@ class LaunchRootParser(object):
                 print('environment variable %s is not set' % env_variable)
                 return None
             string = re.sub(r'\$\(env \S+.*\)',
-                                  os.environ[env_variable], string)
+                            os.environ[env_variable], string)
             pass
         return string
 
     def parse_argument(self, argument):
         name = argument.get('name')
         assert name is not None, 'invalid launch: arg tag must have name attribute'
-        if argument.get('default') is None:
-            print('argument \'%s\' does not have a default value' % name)
-            default_value = None
-        else:
-            default_value = self.parse_xml_value(argument.get('default'))
-            pass
-        return name, default_value
+        default_value = self.parse_xml_value(argument.get('default'))
+        value = self.parse_xml_value(argument.get('value'))
+        return name, default_value, value
+
+    pass
 
 
 class LaunchFileParser(LaunchRootParser):
-    def __init__(self, launch_file_path):
+    def __init__(self, launch_file_path, arg_dict={}):
         try:
             launch_root = ET.parse(launch_file_path).getroot()
         except IOError as e:
             print('IOError parsing %s: %s' % (launch_file_path, e))
             sys.exit(1)
         print('parsing launch file %s' % launch_file_path)
-        super(LaunchFileParser, self).__init__(launch_root)
+        super(LaunchFileParser, self).__init__(launch_root, arg_dict=arg_dict)
         pass
     pass
 
