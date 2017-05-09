@@ -53,7 +53,18 @@ class LaunchRootParser(object):
         if node_name is None:
             print('  error: node element has no name')
             return
-        print('  node: ' + node_name)
+
+        package = self.parse_xml_value(node_element.get('pkg'))
+        if package is None:
+            print('  error: node %s has no pkg tag' % node_name )
+            return
+
+        type_name = self.parse_xml_value(node_element.get('type'))
+        if type_name is None:
+            print('  error: node %s has no type tag' % type_name )
+            return
+
+        print('  node: %s, pkg: %s, type: %s' % (node_name, package, type_name))
         pass
 
     def parse_include(self, include_element):
