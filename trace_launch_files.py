@@ -12,9 +12,10 @@ class LaunchRootParser(object):
     def __init__(self, launch_root, arg_dict={}):
         self.includes = []
         self.groups = {}
+        self.nodes = {}                     # TODO
         self.arg_dict = arg_dict
-        self.conditions = {}
-        self.meaningless_conditions = []
+        self.conditions = {}                # TODO
+        self.meaningless_conditions = []    # TODO
         self.parse_launch_root(launch_root)
         pass
 
@@ -40,7 +41,20 @@ class LaunchRootParser(object):
         for group_element in group_elements:
             self.parse_group(group_element)
             pass
+
+        node_elements = launch_root.findall('node')
+        for node_element in node_elements:
+            self.parse_node(node_element)
+            pass
         return
+
+    def parse_node(self, node_element):
+        node_name = self.parse_xml_value(node_element.get('name'))
+        if node_name is None:
+            print('  error: node element has no name')
+            return
+        print('  node: ' + node_name)
+        pass
 
     def parse_include(self, include_element):
         include_file = self.parse_xml_value(include_element.get('file'))
@@ -50,7 +64,8 @@ class LaunchRootParser(object):
             for arg in include_arguments:
                 name, default_value, value = self.parse_argument(arg)
                 if default_value is not None:
-                    print('  include argument %s  use \'default\' key' % name)
+                    print('  include argument \'%s\' use \'default\' key' % name)
+                    arg_dict[name] = default_value
                     pass
                 if value is not None:
                     arg_dict[name] = value
@@ -64,7 +79,7 @@ class LaunchRootParser(object):
         group_key = len(self.groups.keys())
         if ns is not None:
             group_key = ns
-        self.groups[group_key] = LaunchRootParser(group_element)
+        self.groups[group_key] = LaunchRootParser(group_element, self.arg_dict)
         pass
 
     def parse_xml_value(self, value_string):
@@ -77,12 +92,15 @@ class LaunchRootParser(object):
 
     def parse_arg_keyword(self, string):
         match = re.match(r'.*\$\(arg (\S+)\).*', string)
-        if match is not None:
+        while match is not None:
             arg_name = match.group(1)
             if arg_name not in self.arg_dict:
-                print('  arg not defined: %s' % (arg_name))
+                print('  argument not defined: %s' % (arg_name))
                 return None
-            string =  re.sub(r'\$\(arg \S+\)', self.arg_dict[arg_name], string)
+            sub_string = r'\$\(arg %s\)' % arg_name
+            string = re.sub(sub_string, self.arg_dict[arg_name], string)
+            match = re.match(r'.*\$\(arg (\S+)\).*', string)
+            pass
         return string
 
     def parse_find_keyword(self, string):
@@ -122,7 +140,7 @@ class LaunchRootParser(object):
 
     def parse_argument(self, argument):
         name = argument.get('name')
-        assert name is not None, 'invalid launch: arg tag must have name attribute'
+        assert name is not None, 'invalid launch file: arg tag must have name attribute'
         default_value = self.parse_xml_value(argument.get('default'))
         value = self.parse_xml_value(argument.get('value'))
         return name, default_value, value
