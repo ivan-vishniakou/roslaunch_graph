@@ -20,7 +20,7 @@ class LaunchRootParser(object):
     def parse_launch_root(self, launch_root):
         arguments = launch_root.findall('arg')
         for arg in arguments:
-            name, value = self.parse_arg(arg)
+            name, value = self.parse_argument(arg)
             self.arg_dict[name] = value
             pass
 
@@ -50,27 +50,23 @@ class LaunchRootParser(object):
         pass
 
     def parse_xml_value(self, value_string):
-        match = re.match(r'.*\$\(optenv (\S+).*\).*', value_string)
-        if match is not None:
-            env_variable = match.group(1)
-            if env_variable not in os.environ:
-                print('environment variable %s is not set' % env_variable)
-                return None
-            value_string = re.sub(r'\$\(optenv \S+.*\)',
-                                  os.environ[env_variable], value_string)
-            pass
+        value_string = self.parse_env_keyword(value_string)
+        value_string = self.parse_find_keyword(value_string)
+        value_string = self.parse_arg_keyword(value_string)
+        return value_string
 
-        match = re.match(r'.*\$\(env (\S+).*\).*', value_string)
+    def parse_arg_keyword(self, string):
+        match = re.match(r'.*\$\(arg (\S+)\).*', string)
         if match is not None:
-            env_variable = match.group(1)
-            if env_variable not in os.environ:
-                print('environment variable %s is not set' % env_variable)
+            arg_name = match.group(1)
+            if arg_name not in self.arg_dict:
+                print('arg not defined: %s' % (arg_name))
                 return None
-            value_string = re.sub(r'\$\(env \S+.*\)',
-                                  os.environ[env_variable], value_string)
-            pass
+            string =  re.sub(r'\$\(arg \S+\)', self.arg_dict[arg_name], string)
+        return string
 
-        match = re.match(r'.*\$\(find (\S+)\).*', value_string)
+    def parse_find_keyword(self, string):
+        match = re.match(r'.*\$\(find (\S+)\).*', string)
         if match is not None:
             package_name = match.group(1)
             try:
@@ -79,25 +75,36 @@ class LaunchRootParser(object):
                 print('cannot find package %s' % (package_name))
                 return None
 
-            value_string = re.sub(r'\$\(find \S+\)', package_path,
-                                  value_string)
+            string = re.sub(r'\$\(find \S+\)', package_path, string)
+        return string
 
-        match = re.match(r'.*\$\(arg (\S+)\).*', value_string)
+    def parse_env_keyword(self, string):
+        match = re.match(r'.*\$\(optenv (\S+).*\).*', string)
         if match is not None:
-            arg_name = match.group(1)
-            if arg_name not in self.arg_dict:
-                print('arg not defined: %s' % (arg_name))
+            env_variable = match.group(1)
+            if env_variable not in os.environ:
+                print('environment variable %s is not set' % env_variable)
                 return None
-            value_string =  re.sub(r'\$\(arg \S+\)', self.arg_dict[arg_name],
-                                   value_string)
+            string = re.sub(r'\$\(optenv \S+.*\)',
+                            os.environ[env_variable], string)
+            pass
 
-        return value_string
+        match = re.match(r'.*\$\(env (\S+).*\).*', string)
+        if match is not None:
+            env_variable = match.group(1)
+            if env_variable not in os.environ:
+                print('environment variable %s is not set' % env_variable)
+                return None
+            string = re.sub(r'\$\(env \S+.*\)',
+                                  os.environ[env_variable], string)
+            pass
+        return string
 
-    def parse_arg(self, argument):
+    def parse_argument(self, argument):
         name = argument.get('name')
         assert name is not None, 'invalid launch: arg tag must have name attribute'
         if argument.get('default') is None:
-            print('argument %s does not have a default value' % name)
+            print('argument \'%s\' does not have a default value' % name)
             default_value = None
         else:
             default_value = self.parse_xml_value(argument.get('default'))
