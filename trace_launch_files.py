@@ -8,6 +8,9 @@ from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
 from rospkg import ResourceNotFound
 
 
+INDENT = '  '
+
+
 class LaunchRootParser(object):
     def __init__(self, launch_root, arg_dict={}):
         self.includes = []
@@ -16,7 +19,16 @@ class LaunchRootParser(object):
         self.arg_dict = arg_dict
         self.conditions = {}                # TODO
         self.meaningless_conditions = []    # TODO
+        self.issues = {}
         self.parse_launch_root(launch_root)
+        pass
+
+    def add_issue(self, issue):
+        if issue in self.issues:
+            self.issues[issue] += 1
+        else:
+            self.issues[issue] = 1
+            pass
         pass
 
     def parse_launch_root(self, launch_root):
@@ -24,17 +36,17 @@ class LaunchRootParser(object):
         for arg in arguments:
             name, default_value, value = self.parse_argument(arg)
             if default_value is None:
-                print('  launch root argument \'%s\' does not have a default'
-                      ' value' % name)
+                self.add_issue('launch root argument \'%s\' does not have a' \
+                               ' default value' % name)
                 continue
             if name not in self.arg_dict:
                 self.arg_dict[name] = default_value
                 pass
             pass
 
-        include_elements = launch_root.findall('include')
-        for include_element in include_elements:
-            self.parse_include(include_element)
+        node_elements = launch_root.findall('node')
+        for node_element in node_elements:
+            self.parse_node(node_element)
             pass
 
         group_elements = launch_root.findall('group')
@@ -42,29 +54,29 @@ class LaunchRootParser(object):
             self.parse_group(group_element)
             pass
 
-        node_elements = launch_root.findall('node')
-        for node_element in node_elements:
-            self.parse_node(node_element)
+        include_elements = launch_root.findall('include')
+        for include_element in include_elements:
+            self.parse_include(include_element)
             pass
         return
 
     def parse_node(self, node_element):
         node_name = self.parse_xml_value(node_element.get('name'))
         if node_name is None:
-            print('  error: node element has no name')
+            sys.stderr.write('node element missing a name argument')
             return
 
         package = self.parse_xml_value(node_element.get('pkg'))
         if package is None:
-            print('  error: node %s has no pkg tag' % node_name )
+            self.add_issue('error: node %s has no pkg tag' % node_name)
             return
 
         type_name = self.parse_xml_value(node_element.get('type'))
         if type_name is None:
-            print('  error: node %s has no type tag' % type_name )
+            self.add_issue('error: node %s has no type tag' % type_name)
             return
 
-        print('  node: %s, pkg: %s, type: %s' % (node_name, package, type_name))
+        self.nodes[node_name] = {'package' : package, 'type' : type_name}
         pass
 
     def parse_include(self, include_element):
@@ -75,7 +87,7 @@ class LaunchRootParser(object):
             for arg in include_arguments:
                 name, default_value, value = self.parse_argument(arg)
                 if default_value is not None:
-                    print('  include argument \'%s\' use \'default\' key' % name)
+                    self.add_issue('include argument \'%s\' use \'default\' key' % name)
                     arg_dict[name] = default_value
                     pass
                 if value is not None:
@@ -87,9 +99,10 @@ class LaunchRootParser(object):
 
     def parse_group(self, group_element):
         ns = group_element.get('ns')
-        group_key = len(self.groups.keys())
+        group_key = len(self.groups)
         if ns is not None:
             group_key = ns
+            pass
         self.groups[group_key] = LaunchRootParser(group_element, self.arg_dict)
         pass
 
@@ -106,7 +119,7 @@ class LaunchRootParser(object):
         while match is not None:
             arg_name = match.group(1)
             if arg_name not in self.arg_dict:
-                print('  argument not defined: %s' % (arg_name))
+                self.add_issue('argument \'%s\' not defined' % (arg_name))
                 return None
             sub_string = r'\$\(arg %s\)' % arg_name
             string = re.sub(sub_string, self.arg_dict[arg_name], string)
@@ -121,7 +134,7 @@ class LaunchRootParser(object):
             try:
                 package_path = get_pkg_dir(package_name)
             except InvalidROSPkgException:
-                print('cannot find package %s' % (package_name))
+                self.add_issue('cannot find package %s' % (package_name))
                 return None
 
             string = re.sub(r'\$\(find \S+\)', package_path, string)
@@ -132,7 +145,7 @@ class LaunchRootParser(object):
         if match is not None:
             env_variable = match.group(1)
             if env_variable not in os.environ:
-                print('environment variable %s is not set' % env_variable)
+                self.add_issue('environment variable %s is not set' % env_variable)
                 return None
             string = re.sub(r'\$\(optenv \S+.*\)',
                             os.environ[env_variable], string)
@@ -142,7 +155,7 @@ class LaunchRootParser(object):
         if match is not None:
             env_variable = match.group(1)
             if env_variable not in os.environ:
-                print('environment variable %s is not set' % env_variable)
+                self.add_issue('environment variable %s is not set' % env_variable)
                 return None
             string = re.sub(r'\$\(env \S+.*\)',
                             os.environ[env_variable], string)
@@ -156,6 +169,48 @@ class LaunchRootParser(object):
         value = self.parse_xml_value(argument.get('value'))
         return name, default_value, value
 
+    def print_launch_components_recursive(self, prefix=''):
+        if len(self.issues) > 0:
+            print(prefix + 'Issues:')
+            pass
+        for issue, count in self.issues.iteritems():
+            print(prefix + INDENT + '%s, count: %2d' % (issue, count))
+            pass
+
+        if len(self.nodes) > 0:
+            print(prefix + 'Nodes:')
+            pass
+        for node_name, info in self.nodes.iteritems():
+            print(prefix + INDENT + 'Name: %s, package: %s, type: %s'
+                  % (node_name, info['package'], info['type']))
+            pass
+
+        if len(self.includes) > 0:
+            print(prefix + 'Includes:')
+            pass
+        for include in self.includes:
+            print(prefix + INDENT + 'File: %s, package: %s'
+                  % (os.path.basename(include.path), include.package_name))
+            pass
+
+        if len(self.groups) > 0:
+            print(prefix + 'Groups:')
+            pass
+        for ns, group_object in self.groups.iteritems():
+            print(prefix + INDENT + 'ns: %s' % (ns))
+            group_object.print_launch_components_recursive(prefix + INDENT*2)
+            pass
+        return
+
+    def print_includes_recursive(self, prefix=''):
+        for include_object in self.includes:
+            include_object.print_launch_components_recursive(prefix + INDENT)
+            pass
+        for group_object in self.groups.itervalues():
+            group_object.print_includes_recursive(prefix + INDENT)
+            pass
+        return
+
     pass
 
 
@@ -164,18 +219,26 @@ class LaunchFileParser(LaunchRootParser):
         try:
             launch_root = ET.parse(launch_file_path).getroot()
         except IOError as e:
-            print('IOError parsing %s: %s' % (launch_file_path, e))
+            sys.stderr.write('IOError parsing %s: %s' % (launch_file_path, e))
             sys.exit(1)
         self.path = launch_file_path
         self.package_name = get_dir_pkg(launch_file_path)[1]
         if self.package_name is None:
-            print('no package found for file %s' % (self.path))
+            sys.stderr.write('no package found for file %s' % (self.path))
             self.package_name = ''
             pass
         print('\nparsing launch file %s' % launch_file_path)
-        print('package: %s' % self.package_name)
         super(LaunchFileParser, self).__init__(launch_root, arg_dict=arg_dict)
         pass
+
+    def print_launch_components_recursive(self, prefix=''):
+        print('\n' + prefix + '-' * 50)
+        print(prefix + 'File:    ' + os.path.basename(self.path))
+        print(prefix + 'Package: ' + self.package_name)
+        print(prefix + '-' * 50)
+        super(LaunchFileParser, self).print_launch_components_recursive(prefix)
+        super(LaunchFileParser, self).print_includes_recursive(prefix)
+        return
     pass
 
 
@@ -195,7 +258,9 @@ def main(argv):
     print('Found launch files:\n%s' % (launch_file_paths))
     launch_records = []
     for path in launch_file_paths:
-        launch_records.append(LaunchFileParser(path))
+        launch_file_obj = LaunchFileParser(path)
+        launch_records.append(launch_file_obj)
+        launch_file_obj.print_launch_components_recursive()
         pass
     return
 
