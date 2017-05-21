@@ -17,6 +17,7 @@ class LaunchRootParser(object):
         self.groups = {}
         self.nodes = {}                     # TODO
         self.arg_dict = arg_dict
+        self.input_arg_dict = arg_dict.copy()
         self.conditions = {}                # TODO
         self.meaningless_conditions = []    # TODO
         self.issues = {}
@@ -220,7 +221,8 @@ class LaunchFileParser(LaunchRootParser):
             launch_root = ET.parse(launch_file_path).getroot()
         except IOError as e:
             sys.stderr.write('IOError parsing %s: %s' % (launch_file_path, e))
-            sys.exit(1)
+            #sys.exit(1)
+            launch_root = ET.Element('launch')
         self.path = launch_file_path
         self.package_name = get_dir_pkg(launch_file_path)[1]
         if self.package_name is None:
