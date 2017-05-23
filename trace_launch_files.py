@@ -224,6 +224,7 @@ class LaunchFileParser(LaunchRootParser):
             #sys.exit(1)
             launch_root = ET.Element('launch')
         self.path = launch_file_path
+        self.file_name = os.path.basename(self.path)
         self.package_name = get_dir_pkg(launch_file_path)[1]
         if self.package_name is None:
             sys.stderr.write('no package found for file %s' % (self.path))
@@ -235,7 +236,7 @@ class LaunchFileParser(LaunchRootParser):
 
     def print_launch_components_recursive(self, prefix=''):
         print('\n' + prefix + '-' * 50)
-        print(prefix + 'File:    ' + os.path.basename(self.path))
+        print(prefix + 'File:    ' + self.file_name)
         print(prefix + 'Package: ' + self.package_name)
         print(prefix + '-' * 50)
         super(LaunchFileParser, self).print_launch_components_recursive(prefix)
