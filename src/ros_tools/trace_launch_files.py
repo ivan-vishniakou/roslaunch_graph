@@ -3,7 +3,7 @@ import os
 import re
 import sys
 import xml.etree.ElementTree as ET
-from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
+from roslib.packages import get_pkg_dir, get_dir_pkg, \
                             InvalidROSPkgException
 from rospkg import ResourceNotFound
 
@@ -15,9 +15,10 @@ class LaunchRootParser(object):
     def __init__(self, launch_root, arg_dict={}):
         self.includes = []
         self.groups = {}
-        self.nodes = {}                     # TODO
+        self.nodes = {}
+        self.rosparams = []
         self.arg_dict = arg_dict
-        self.input_arg_dict = arg_dict.copy()
+        self.default_args = []
         self.conditions = {}                # TODO
         self.meaningless_conditions = []    # TODO
         self.issues = {}
@@ -42,6 +43,7 @@ class LaunchRootParser(object):
                 continue
             if name not in self.arg_dict:
                 self.arg_dict[name] = default_value
+                self.default_args.append(name)
                 pass
             pass
 
@@ -59,6 +61,27 @@ class LaunchRootParser(object):
         for include_element in include_elements:
             self.parse_include(include_element)
             pass
+
+        rosparam_elements = launch_root.findall('rosparam')
+        for rosparam_element in rosparam_elements:
+            self.parse_rosparam(rosparam_element)
+            pass
+        return
+
+    def parse_rosparam(self, rosparam_element):
+        file_name = self.parse_xml_value(rosparam_element.get('file'))
+        if file_name is None:
+            self.add_issue('error: rosparam element does not have a file attribute')
+            return
+
+        command = self.parse_xml_value(rosparam_element.get('command'))
+        if command is None:
+            self.add_issue('error: rosparam element does not have a command attribute')
+            return
+
+        ns = self.parse_xml_value(rosparam_element.get('ns'))
+
+        self.rosparams.append({'file': file_name, 'command': command, 'ns': ns})
         return
 
     def parse_node(self, node_element):
@@ -69,15 +92,53 @@ class LaunchRootParser(object):
 
         package = self.parse_xml_value(node_element.get('pkg'))
         if package is None:
-            self.add_issue('error: node %s has no pkg tag' % node_name)
+            self.add_issue('error: node %s has no pkg attribute' % node_name)
             return
 
         type_name = self.parse_xml_value(node_element.get('type'))
         if type_name is None:
-            self.add_issue('error: node %s has no type tag' % type_name)
+            self.add_issue('error: node %s has no type attribute' % type_name)
             return
 
-        self.nodes[node_name] = {'package' : package, 'type' : type_name}
+        param_elements = node_element.findall('param')
+        params = []
+        for param_element in param_elements:
+            name = self.parse_xml_value(param_element.get('name'))
+            if name is None:
+                self.add_issue('error: node %s has param without name attribute'
+                               % node_name)
+                continue
+            value = self.parse_xml_value(param_element.get('value'))
+            if value is None:
+                self.add_issue('error: param %s of node %s has no value attribute'
+                               % (name, node_name))
+                pass
+            type_name = self.parse_xml_value(param_element.get('type'))
+            if type_name is None:
+                self.add_issue('error: param %s of node %s has no type attribute'
+                               % (name, node_name))
+                pass
+            params.append({'name': name, 'value': value, 'type': type_name})
+            pass
+
+        remap_elements = node_element.findall('remap')
+        remaps = []
+        for remap_element in remap_elements:
+            from_attribute = self.parse_xml_value(remap_element.get('from'))
+            if from_attribute is None:
+                self.add_issue('error: node %s has remap without from attribute'
+                               % node_name)
+                continue
+            to_attribute = self.parse_xml_value(remap_element.get('to'))
+            if to_attribute is None:
+                self.add_issue('error: node %s has remap without to attribute'
+                               % node_name)
+                continue
+            remaps.append({'from': from_attribute, 'to': to_attribute})
+            pass
+
+        self.nodes[node_name] = {'package': package, 'type': type_name,
+                                 'params': params, 'remaps': remaps}
         pass
 
     def parse_include(self, include_element):
@@ -165,12 +226,13 @@ class LaunchRootParser(object):
 
     def parse_argument(self, argument):
         name = argument.get('name')
-        assert name is not None, 'invalid launch file: arg tag must have name attribute'
+        assert name is not None, 'invalid launch file: arg element must have name attribute'
         default_value = self.parse_xml_value(argument.get('default'))
         value = self.parse_xml_value(argument.get('value'))
         return name, default_value, value
 
     def print_launch_components_recursive(self, prefix=''):
+        # print issues
         if len(self.issues) > 0:
             print(prefix + 'Issues:')
             pass
@@ -178,14 +240,50 @@ class LaunchRootParser(object):
             print(prefix + INDENT + '%s, count: %2d' % (issue, count))
             pass
 
+        # print rosparams
+        if len(self.rosparams) > 0:
+            print(prefix + 'Parameters for parameter server:')
+            pass
+        for rosparam in self.rosparams:
+            print_string = 'command: %s' % (rosparam['command'])
+            package_name = get_dir_pkg(rosparam['file'])[1]
+            if package_name is None:
+                print_string += ', file: %s' % rosparam['file']
+            else:
+                print_string += ', package: %s, file: %s' \
+                        % (package_name, os.path.basename(rosparam['file']))
+                pass
+            if rosparam['ns'] is not None:
+                print_string += ', ns: %s' % rosparam['ns']
+                pass
+            print(prefix + INDENT + print_string)
+            pass
+
+        # print nodes
         if len(self.nodes) > 0:
             print(prefix + 'Nodes:')
             pass
         for node_name, info in self.nodes.iteritems():
+            print(prefix + INDENT + '-'*30)
             print(prefix + INDENT + 'Name: %s, package: %s, type: %s'
                   % (node_name, info['package'], info['type']))
+            if len(info['params']) > 0:
+                print(prefix + INDENT*2 + 'Parameters:')
+                pass
+            for param in info['params']:
+                print(prefix + INDENT*3 + 'name: %s, value: %s, type: %s'
+                      % (param['name'], param['value'], param['type']))
+                pass
+            if len(info['remaps']) > 0:
+                print(prefix + INDENT*2 + 'Remaps:')
+                pass
+            for remap in info['remaps']:
+                print(prefix + INDENT*3 + 'from: %s, to: %s'
+                      % (remap['from'], remap['to']))
+                pass
             pass
 
+        # print included launch files
         if len(self.includes) > 0:
             print(prefix + 'Includes:')
             pass
@@ -194,6 +292,7 @@ class LaunchRootParser(object):
                   % (os.path.basename(include.path), include.package_name))
             pass
 
+        # print groups
         if len(self.groups) > 0:
             print(prefix + 'Groups:')
             pass

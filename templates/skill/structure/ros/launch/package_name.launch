@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- All the args of the package and its children must be defined here-->
+    <arg name="" default="" />
+    <arg name="" default="" />
+    <arg name="" default="" />
+
+    <!-- The nodes launched by the package should be here -->
+
+
+    <!-- Other nodes should be added using the include tag -->
+
+</launch>

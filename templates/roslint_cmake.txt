@@ -1,0 +1,14 @@
+
+#############
+## Linters ##
+#############
+
+# Uncomment to modify the linter filter
+# set(ROSLINT_CPP_OPTS "--filter=")
+# set(ROSLINT_PYTHON_OPTS "")
+
+# By default both linters are included.
+roslint_cpp()
+roslint_python()
+
+roslint_add_test()
