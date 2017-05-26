@@ -1,4 +1,4 @@
-# ros-tools
+# ros_tools
 tools to make life with ROS easier
 
 ## Tracing launch files
@@ -20,7 +20,7 @@ Packages that can be created:
 ### Usage
 In the directory where you want to create a new package run:
 ```bash
-rosrun ros-tools create_package <package_name> --type <pkg_type>
+rosrun ros_tools create_package <package_name> --type <pkg_type>
 ```
 Where `<pkg_type>` can be:
 * meta : metapackage

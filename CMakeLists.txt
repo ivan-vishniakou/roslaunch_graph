@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(ros-tools)
+project(ros_tools)
 
 ## Add support for C++11, supported in ROS Kinetic and newer
 # add_definitions(-std=c++11)
@@ -11,11 +11,12 @@ find_package(catkin REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 #find_package(Boost REQUIRED COMPONENTS system)
-find_package(catkin REQUIRED COMPONENTS roslint)
+find_package(catkin REQUIRED
+  COMPONENTS
+    roslint
+    rospy
+)
 
-## Uncomment this if the package has a setup.py. This macro ensures
-## modules and global scripts declared therein get installed
-## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
 catkin_python_setup()
 
 ################################################
@@ -159,7 +160,7 @@ catkin_package(
 
 install(PROGRAMS
   scripts/create_package
-  scripts/trace_launch_files.py
+  scripts/trace_launch_files
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}/scripts
 )
 

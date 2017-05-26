@@ -1,0 +1,33 @@
+#!/usr/bin/env python
+import sys
+from roslib.packages import find_resource
+from rospkg import ResourceNotFound
+from ros_tools.trace_launch_files import LaunchFileParser
+
+
+def main(argv):
+    print('package: ' + argv[1])
+    print('launch file: ' + argv[2])
+    package = argv[1]
+    launch_file = argv[2]
+    try:
+        launch_file_paths = find_resource(package, launch_file)
+    except ResourceNotFound as e:
+        print('Unable to find package %s: %s' % (package, e))
+        return
+    if len(launch_file_paths) == 0:
+        print('Unable to find launch file %s' % launch_file)
+        return
+    print('Found launch files:\n%s' % (launch_file_paths))
+    launch_records = []
+    for path in launch_file_paths:
+        launch_file_obj = LaunchFileParser(path)
+        launch_records.append(launch_file_obj)
+        launch_file_obj.print_launch_components_recursive()
+        pass
+    return
+
+
+if __name__ == '__main__':
+    assert len(sys.argv) == 3, 'script accept exactly 2 arguments: ros package name and launch file'
+    main(sys.argv)
