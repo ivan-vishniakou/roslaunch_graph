@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os
+import sys
+import getopt
+from distutils import dir_util, file_util
+import inspect
+
+from catkin_pkg.package_templates import create_package_files, PackageTemplate
+from catkin_pkg.package import Dependency, Export
+
+
+def basic_package(package_name, target_path, kind='pkg'):
+    package_template = PackageTemplate._create_package_template(
+        package_name=package_name)
+
+    if kind in ['pkg', 'scenario', 'skill']:
+        # NOTE Do we add roslint to metapackages as well?
+        package_template.catkin_deps.append('roslint')
+        package_template.build_depends.append(Dependency('roslint'))
+    elif kind == 'meta':
+        package_template.exports.append(Export('metapackage'))
+
+    create_package_files(target_path=target_path,
+                         package_template=package_template,
+                         rosdistro='indigo',
+                         newfiles={})
+
+
+def setup_structure(package_name, target_path, kind='pkg'):
+    filename = inspect.getframeinfo(inspect.currentframe()).filename
+    path = os.path.dirname(os.path.abspath(filename))
+    templates_dir = os.path.abspath(os.path.join(path, '..', 'templates'))
+
+    linttxt = open('%s/roslint_cmake.txt' % templates_dir, 'r')
+    if linttxt.mode == 'r':
+        contents = linttxt.read()
+        # print(contents)
+
+    cmakelists = open('%s/CMakeLists.txt' % target_path, 'a+')
+    cmakelists.write(contents)
+    print ('Updated CMakeLists.txt')
+
+    dir_util.copy_tree('%s/%s/structure/' % (templates_dir, kind), target_path)
+    print ('Created file %s/README.md' % package_name)
+
+    templates = {"project_name": package_name, '1': package_name}
+
+    if kind == 'pkg':
+        file_util.write_file('%s/ros/scripts/%s_node' % (target_path,
+                                                         package_name), '')
+        dir_util.mkpath('%s/common/include/%s' % (target_path, package_name))
+        dir_util.mkpath('%s/ros/include/%s' % (target_path, package_name))
+        dir_util.mkpath('%s/common/src/%s' % (target_path, package_name))
+        dir_util.mkpath('%s/ros/src/%s' % (target_path, package_name))
+    elif kind in ['scenario', 'skill']:
+        dir_util.mkpath('%s/ros/src/%s' % (target_path, package_name))
+        file_util.write_file('%s/ros/src/%s/__init__.py' %
+                             (target_path, package_name), '')
+
+        os.rename('%s/ros/launch/package_name.launch' % target_path,
+                  '%s/ros/launch/%s.launch' % (target_path, package_name))
+        if kind == 'skill':
+            os.rename('%s/ros/src/package_name/package_name.py' % target_path,
+                      '%s/ros/src/%s/%s_server.py' % (target_path,
+                                                      package_name,
+                                                      package_name))
+            os.rename('%s/ros/scripts/package_name' % target_path,
+                      '%s/ros/scripts/%s_server' % (target_path, package_name))
+        else:
+            os.rename('%s/ros/src/package_name/package_name.py' % target_path,
+                      '%s/ros/src/%s/%s.py' % (target_path, package_name,
+                                               package_name))
+            os.rename('%s/ros/scripts/package_name' % target_path,
+                      '%s/ros/scripts/%s' % (target_path, package_name))
+
+        os.rmdir('%s/ros/src/package_name' % target_path)
+
+    elif kind == 'meta':
+        apply_template('%s/CMakeLists.txt' % target_path, templates)
+
+    print ('Created package structure')
+
+
+def apply_template(file, templates):
+    with open(file, 'r+w+') as f:
+        contents = f.read()
+        f.seek(0)
+        f.truncate()
+        f.write(contents.format(**templates))
+    f.close()
+
+
+def create_scenario(package_name, target_path):
+    basic_package(package_name, target_path, 'scenario')
+    setup_structure(package_name, target_path, 'scenario')
+
+
+def create_skill(package_name, target_path):
+    basic_package(package_name, target_path, 'skill')
+    setup_structure(package_name, target_path, 'skill')
+
+
+def create_package(package_name, target_path):
+    basic_package(package_name, target_path)
+    setup_structure(package_name, target_path)
+
+
+def create_metapackage(package_name, target_path):
+    basic_package(package_name, target_path, 'meta')
+    setup_structure(package_name, target_path, 'meta')
+
+
+def main(name, sysargs, kind='pkg'):
+    try:
+        # Get absolute path to directory containing package
+        package_dest_path = os.path.abspath('.')
+        package_name = name
+        target_path = os.path.join(package_dest_path, package_name)
+
+        print('Creating "%s" in "%s"...' % (package_name,
+                                            package_dest_path))
+
+        if kind == 'pkg':
+            pkg_type = 'package'
+            create_package(package_name, target_path)
+        elif kind == 'meta':
+            pkg_type = 'metapackage'
+            create_metapackage(package_name, target_path)
+        elif kind == 'scenario':
+            pkg_type = 'scenario package'
+            create_scenario(package_name, target_path)
+        elif kind == 'skill':
+            pkg_type = 'skill package'
+            create_skill(package_name, target_path)
+
+        print('Successfully created %s files in %s.' % (pkg_type, target_path))
+
+    except ValueError as vae:
+        print(str(vae))
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sysargs = sys.argv[1:]
+
+    if len(sysargs) <= 1:
+        print('Usage: create_package <package_name> [-h] --type <pkg_type>')
+
+    name = sysargs[0]
+    sysargs = sysargs[1:]
+
+    try:
+        opts, args = getopt.getopt(sysargs, "h", ["type="])
+    except getopt.GetoptError:
+        print('Usage: create_package <package_name> [-h] --type <pkg_type>')
+        sys.exit(2)
+
+    for opt, arg in opts:
+        if opt == '-h':
+            print('Usage: create_package <package_name> [-h] --type <pkgtype>')
+            print('--type\tThe type of package to create\n\t'
+                  '[meta | pkg | scenario | skill]')
+            sys.exit()
+        elif opt in ("--type"):
+            main(name, sysargs, kind=arg)
