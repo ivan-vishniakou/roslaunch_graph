@@ -9,8 +9,6 @@ from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
                             InvalidROSPkgException
 from trace_launch_files import LaunchFileParser
 
-import pygraphviz as gv
-
 
 class RIElement(object):
     """
@@ -19,15 +17,16 @@ class RIElement(object):
     #Unique id for the node
     uid_counter = 0
 
+    @staticmethod
+    def wrap_in_html_table():
+        #TODO
+        pass
+
     def __init__(self):
         self.children = []
+        self.input_args = []
         self.uid = RINode.uid_counter
         RIElement.uid_counter += 1
-
-    def add_to_graph(self, gv_graph):
-        gv_graph.add_node(self.uid,
-                          label=str(self.uid)
-                          )
 
     def find_by_uid(self, uid):
         if self.uid == uid:
@@ -38,8 +37,20 @@ class RIElement(object):
                 return ri_el
         return None
 
+    def get_dot_lines(self):
+        """Returns the lines of the dot representation of the element
+        """
+        s = '''%s [URL=%s, label="node %s" shape=record]''' % (self.uid,
+                                                               self.uid,
+                                                               self.uid)
+        lines = [s]
+        for c in self.children:
+            lines.extend(c.get_dot_lines())
+        return lines
+
+
 class RILaunch(RIElement):
-    
+
     def __init__(self, parsed_launch):
         super(RILaunch, self).__init__()
         
@@ -47,35 +58,41 @@ class RILaunch(RIElement):
         
         for l in parsed_launch.includes:
             self.children.append(RILaunch(l))
-    
+        
+        self.input_args = self.parsed_launch.input_arg_dict.keys()
+            
         for n in self.parsed_launch.nodes.keys():
             self.children.append(RINode(n, self.parsed_launch.nodes[n]))
 
-
-    def add_to_graph(self, gv_graph):
-        
+    def get_dot_lines(self):
         header_dot_str = '{%s|%s}|%s' % (self.parsed_launch.package_name,
                                          self.parsed_launch.file_name,
                                          self.parsed_launch.path)
         
         output_args = sorted(self.parsed_launch.arg_dict.keys())
-        input_vals = [self.parsed_launch.input_arg_dict[a]
+        input_vals = ['<in_%s> ' % a + self.parsed_launch.input_arg_dict[a]
                       if a in self.parsed_launch.input_arg_dict.keys() else ' '
                       for a in output_args]
-        output_vals = [self.parsed_launch.arg_dict[a]
+        output_vals = ['<out_%s> ' % a + self.parsed_launch.arg_dict[a]
                       if a in self.parsed_launch.arg_dict.keys() else ' '
                       for a in output_args]
         args_dot_str = '{{'+'|'.join(input_vals)+'}|{'+\
                           '|'.join(output_args)+\
                           '}|{'+'|'.join(output_vals)+'}}'
-        gv_graph.add_node(self.uid,
-                          shape='record',
-                          label='|'.join([header_dot_str, args_dot_str]),
-                            URL=str(self.uid)
-                          )
+        label='|'.join([header_dot_str, args_dot_str])
+
+        s = '''%s [URL=%s, label="%s" shape=record];''' % (self.uid,
+                                                          self.uid,
+                                                          label)
+        lines = [s]
         for c in self.children:
-            c.add_to_graph(gv_graph)
-            gv_graph.add_edge(self.uid, c.uid, dir='forward')
+            lines.extend(c.get_dot_lines())
+            edges = [('%s:out_%s' % (self.uid,a),
+                      ('%s:in_%s' % (c.uid,a))) for a in output_args
+                      if a in c.input_args]
+            for u, v in edges:
+                lines.append('%s -> %s;' % (u, v))
+        return lines
 
 
 class RINode(RIElement):
@@ -84,19 +101,9 @@ class RINode(RIElement):
         super(RINode, self).__init__()
         self.name = nodename
         self.params = nodeparams
+        print nodeparams
         #self.input_args = input_args
 
-    def add_to_graph(self, gv_graph):
-        
-        header_dot_str = '%s|{%s|%s}' % (self.name,
-                                         self.params['package'],
-                                         self.params['type'])
-        
-        gv_graph.add_node(self.uid,
-                          shape='record',
-                          label=header_dot_str,
-                          )
-        pass
 
 class RoslaunchInspector(wx.Frame):
     """
@@ -116,6 +123,10 @@ class RoslaunchInspector(wx.Frame):
         else:
             package = 'mdr_bringup'
             launch_file = 'openni2.launch'
+
+            #package = 'cob_people_detection'
+            #launch_file = 'people_detection_with_viewer.launch'
+            
             launch_file_paths = find_resource(package, launch_file)
             #print launch_file_paths
     
@@ -124,20 +135,18 @@ class RoslaunchInspector(wx.Frame):
                 self.root = RILaunch(launch_file_obj)
             pass
             
-            graph = gv.AGraph(rankdir='LR')
-            self.root.add_to_graph(graph)
-            #graph.add_node('a', shape='record', label='Launchfile|{params|{a|s}|b}|3', pos='0,0!')
-
-            #graph.add_subgraph(nbunch=nlist, name='asd', label='s')
-            #n = RINode()
-            #n.add_to_graph(graph)
-            
-        self.graph_view.set_dotcode(graph.to_string())
-        print graph
+        t = '''digraph {
+               graph [rankdir=LR];
+               node [label="\N"];
+            '''
+        t += '\n'.join(self.root.get_dot_lines())
+        t += '}'
+        self.graph_view.set_dotcode(t)
+        self.graph_view.zoom_to_fit()
 
 
     def select_cb(self, item, event):
-        """Event: Click to select a graph node to display user data and update the graph."""
+        """Event: Click to select a graph node."""
         if event.ButtonUp(wx.MOUSE_BTN_LEFT):
             el = self.root.find_by_uid(int(item.url))
             if isinstance(el, RILaunch):
