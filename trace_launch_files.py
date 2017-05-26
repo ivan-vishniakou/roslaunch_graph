@@ -76,7 +76,45 @@ class LaunchRootParser(object):
             self.add_issue('error: node %s has no type tag' % type_name)
             return
 
-        self.nodes[node_name] = {'package' : package, 'type' : type_name}
+        param_elements = node_element.findall('param')
+        params = []
+        for param_element in param_elements:
+            name = self.parse_xml_value(param_element.get('name'))
+            if name is None:
+                self.add_issue('error: node %s has param without name tag'
+                               % node_name)
+                continue
+            value = self.parse_xml_value(param_element.get('value'))
+            if value is None:
+                self.add_issue('error: param %s of node %s has no value tag'
+                               % (name, node_name))
+                pass
+            type_name = self.parse_xml_value(param_element.get('type'))
+            if type_name is None:
+                self.add_issue('error: param %s of node %s has no type tag'
+                               % (name, node_name))
+                pass
+            params.append({'name': name, 'value': value, 'type': type_name})
+            pass
+
+        remap_elements = node_element.findall('remap')
+        remaps = []
+        for remap_element in remap_elements:
+            from_tag = self.parse_xml_value(remap_element.get('from'))
+            if from_tag is None:
+                self.add_issue('error: node %s has remap without from tag'
+                               % node_name)
+                continue
+            to_tag = self.parse_xml_value(remap_element.get('to'))
+            if to_tag is None:
+                self.add_issue('error: node %s has remap without to tag'
+                               % node_name)
+                continue
+            remaps.append({'from': from_tag, 'to': to_tag})
+            pass
+
+        self.nodes[node_name] = {'package': package, 'type': type_name,
+                                 'params': params, 'remaps': remaps}
         pass
 
     def parse_include(self, include_element):
@@ -183,6 +221,20 @@ class LaunchRootParser(object):
         for node_name, info in self.nodes.iteritems():
             print(prefix + INDENT + 'Name: %s, package: %s, type: %s'
                   % (node_name, info['package'], info['type']))
+            if len(info['params']) > 0:
+                print(prefix + INDENT*2 + 'Parameters:')
+                pass
+            for param in info['params']:
+                print(prefix + INDENT*3 + 'name: %s, value: %s, type: %s'
+                      % (param['name'], param['value'], param['type']))
+                pass
+            if len(info['remaps']) > 0:
+                print(prefix + INDENT*2 + 'Remaps:')
+                pass
+            for remap in info['remaps']:
+                print(prefix + INDENT*3 + 'from: %s, to: %s'
+                      % (remap['from'], remap['to']))
+                pass
             pass
 
         if len(self.includes) > 0:
