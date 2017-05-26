@@ -159,6 +159,7 @@ catkin_package(
 
 install(PROGRAMS
   scripts/create_package
+  scripts/trace_launch_files.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}/scripts
 )
 
