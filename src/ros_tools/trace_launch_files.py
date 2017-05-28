@@ -18,6 +18,7 @@ class LaunchRootParser(object):
         self.nodes = {}
         self.rosparams = []
         self.arg_dict = arg_dict
+        self.input_arg_dict = arg_dict.copy()
         self.default_args = []
         self.conditions = {}                # TODO
         self.meaningless_conditions = []    # TODO

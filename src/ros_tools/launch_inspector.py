@@ -7,7 +7,7 @@ import xdot
 
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
                             InvalidROSPkgException
-from trace_launch_files import LaunchFileParser
+from ros_tools.trace_launch_files import LaunchFileParser
 
 
 class RIElement(object):
@@ -121,7 +121,7 @@ class RoslaunchInspector(wx.Frame):
             graph = gv.AGraph(filename=dot_filename, directed=True)
             graph.node = {'shape':'record'}
         else:
-            package = 'mdr_bringup'
+            package = 'openni2_launch'
             launch_file = 'openni2.launch'
 
             #package = 'cob_people_detection'
