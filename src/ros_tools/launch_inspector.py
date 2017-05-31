@@ -10,9 +10,10 @@ from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
 from ros_tools.trace_launch_files import LaunchFileParser
 
 
+
 class RIElement(object):
     """
-    
+    Base class for nodes drawn in graphvis.
     """
     #Unique id for the node
     uid_counter = 0
@@ -21,6 +22,10 @@ class RIElement(object):
     def wrap_in_html_table():
         #TODO
         pass
+    
+    @staticmethod
+    def trim_str(s):
+        return s[:50]+' ... '+s[-50:] if len(s)>100 else s
 
     def __init__(self):
         self.children = []
@@ -40,9 +45,9 @@ class RIElement(object):
     def get_dot_lines(self):
         """Returns the lines of the dot representation of the element
         """
-        s = '''%s [URL=%s, label="node %s" shape=record]''' % (self.uid,
-                                                               self.uid,
-                                                               self.uid)
+        s = '''%s [URL=%s, label="node %s" shape=record];''' % (self.uid,
+                                                                self.uid,
+                                                                self.uid)
         lines = [s]
         for c in self.children:
             lines.extend(c.get_dot_lines())
@@ -65,15 +70,19 @@ class RILaunch(RIElement):
             self.children.append(RINode(n, self.parsed_launch.nodes[n]))
 
     def get_dot_lines(self):
-        header_dot_str = '{%s|%s}|%s' % (self.parsed_launch.package_name,
-                                         self.parsed_launch.file_name,
-                                         self.parsed_launch.path)
+        header_dot_str = '<head>\n %s \t %s \n \t|%s' % (self.parsed_launch.package_name,
+                                                      self.parsed_launch.file_name,
+                                                      self.parsed_launch.path)
         
         output_args = sorted(self.parsed_launch.arg_dict.keys())
-        input_vals = ['<in_%s> ' % a + self.parsed_launch.input_arg_dict[a]
+        input_vals = ['<in_%s> ' % a + RIElement.trim_str(
+                                        self.parsed_launch.input_arg_dict[a]
+                                                         )
                       if a in self.parsed_launch.input_arg_dict.keys() else ' '
                       for a in output_args]
-        output_vals = ['<out_%s> ' % a + self.parsed_launch.arg_dict[a]
+        output_vals = ['<out_%s> ' % a + RIElement.trim_str(
+                                        self.parsed_launch.arg_dict[a]
+                                                            )
                       if a in self.parsed_launch.arg_dict.keys() else ' '
                       for a in output_args]
         args_dot_str = '{{'+'|'.join(input_vals)+'}|{'+\
@@ -86,12 +95,16 @@ class RILaunch(RIElement):
                                                           label)
         lines = [s]
         for c in self.children:
+            
+            u, v = self.uid, c.uid
+            lines.append('%s:head -> %s:head;' % (u, v))
+            
             lines.extend(c.get_dot_lines())
             edges = [('%s:out_%s' % (self.uid,a),
-                      ('%s:in_%s' % (c.uid,a))) for a in output_args
+                     ('%s:in_%s' % (c.uid,a))) for a in output_args
                       if a in c.input_args]
             for u, v in edges:
-                lines.append('%s -> %s;' % (u, v))
+                lines.append('%s -> %s [arrowsize=0.5, penwidth=0.5];' % (u, v))
         return lines
 
 
@@ -101,9 +114,22 @@ class RINode(RIElement):
         super(RINode, self).__init__()
         self.name = nodename
         self.params = nodeparams
-        print nodeparams
-        #self.input_args = input_args
+        print 'nodeparams', nodeparams
 
+    def get_dot_lines(self):
+        label = '{<head>\n %s \n\t |%s \t %s}' % (self.name,
+                                                  self.params['package'],
+                                                  self.params['type'])
+        
+        param_names = [p['name'] for p in self.params['params']]
+        param_values = [RIElement.trim_str(p['value']) for p in self.params['params']]
+        label += '|{{' + '|'.join(param_names) + '}|{' + '|'.join(param_values) + '}}'
+        
+        s = '''%s [URL=%s, label="%s" shape=record]''' % (self.uid,
+                                                          self.uid,
+                                                          label)
+        lines = [s]
+        return lines
 
 class RoslaunchInspector(wx.Frame):
     """
@@ -124,12 +150,15 @@ class RoslaunchInspector(wx.Frame):
             package = 'openni2_launch'
             launch_file = 'openni2.launch'
 
-            #package = 'cob_people_detection'
-            #launch_file = 'people_detection_with_viewer.launch'
+            package = 'cob_people_detection'
+            launch_file = 'people_detection_with_viewer.launch'
+
+            package = 'mdr_moveit_cob'
+            launch_file = 'demo.launch'
             
             launch_file_paths = find_resource(package, launch_file)
             #print launch_file_paths
-    
+
             for path in launch_file_paths:
                 launch_file_obj = LaunchFileParser(path)
                 self.root = RILaunch(launch_file_obj)
@@ -141,6 +170,7 @@ class RoslaunchInspector(wx.Frame):
             '''
         t += '\n'.join(self.root.get_dot_lines())
         t += '}'
+        #print t
         self.graph_view.set_dotcode(t)
         self.graph_view.zoom_to_fit()
 
