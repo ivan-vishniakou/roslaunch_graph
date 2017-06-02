@@ -4,24 +4,46 @@ import wxversion
 wxversion.select("2.8")
 import wx
 import xdot
+from subprocess import call
 
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
                             InvalidROSPkgException
 from ros_tools.trace_launch_files import LaunchFileParser
 
 
-
+class HTML(object):
+    """
+    Helper class for styling the graphvis nodes.
+    """
+    TABLE   = 'TABLE'
+    TD      = 'TD'
+    TR      = 'TR'
+    BR      = '<BR/>'
+    
+    ST_TABLE = 'BORDER="0" CELLBORDER="1" CELLSPACING="0"'
+    ST_HEADER = 'COLSPAN="2"'
+    
+    @staticmethod
+    def wrap(TAG, string, attribs='', portname=None):
+        """Wraps string into HTML as in the template:
+        <TAG attribs port="portname">string</TAG>
+        """
+        if len(attribs)>0:
+            attribs = ' ' + attribs
+        if not portname is None:
+            attribs += ' PORT="%s"' % portname
+        return '<%s%s>%s</%s>' % (TAG,
+                                  attribs,
+                                  string,
+                                  TAG)
+    
+    
 class RIElement(object):
     """
     Base class for nodes drawn in graphvis.
     """
     #Unique id for the node
     uid_counter = 0
-
-    @staticmethod
-    def wrap_in_html_table():
-        #TODO
-        pass
     
     @staticmethod
     def trim_str(s):
@@ -68,12 +90,14 @@ class RILaunch(RIElement):
             
         for n in self.parsed_launch.nodes.keys():
             self.children.append(RINode(n, self.parsed_launch.nodes[n]))
+            
+        for r in self.parsed_launch.rosparams:
+            self.children.append(RIRosparam(r))
 
     def get_dot_lines(self):
         header_dot_str = '<head>\n %s \t %s \n \t|%s' % (self.parsed_launch.package_name,
-                                                      self.parsed_launch.file_name,
-                                                      self.parsed_launch.path)
-        
+                                                         self.parsed_launch.file_name,
+                                                         self.parsed_launch.path)
         output_args = sorted(self.parsed_launch.arg_dict.keys())
         input_vals = ['<in_%s> ' % a + RIElement.trim_str(
                                         self.parsed_launch.input_arg_dict[a]
@@ -114,7 +138,6 @@ class RINode(RIElement):
         super(RINode, self).__init__()
         self.name = nodename
         self.params = nodeparams
-        print 'nodeparams', nodeparams
 
     def get_dot_lines(self):
         label = '{<head>\n %s \n\t |%s \t %s}' % (self.name,
@@ -131,12 +154,62 @@ class RINode(RIElement):
         lines = [s]
         return lines
 
+        
+class RIRosparam(RIElement):
+
+    def __init__(self, params):
+        super(RIRosparam, self).__init__()
+        self.params = params
+
+    def get_dot_lines(self):
+        
+        header_str = 'ROSPARAM \t NS: %s \t COMMAND: %s' % (self.params['ns'],
+                                                            self.params['command'])
+        label = HTML.wrap(HTML.TABLE,
+                    HTML.wrap(HTML.TR,
+                        HTML.wrap(HTML.TD, header_str,
+                                  attribs=HTML.ST_HEADER,
+                                  portname='head'
+                                  )
+                              )+\
+                        HTML.wrap(HTML.TR, 
+                            HTML.wrap(HTML.TD, self.params['file'],
+                                      attribs=HTML.ST_HEADER
+                                      )
+                                 ),
+                        attribs=HTML.ST_TABLE
+                        )
+        #label = '<head>\nrosparam \t ns: %s \t command:%s\n \t|%s' % (self.params['ns'],
+        #                                                      self.params['command'],
+        #                                                      self.params['file'])
+           
+        s = '''%s [URL=%s, label=<%s> shape=plaintext];''' % (self.uid,
+                                                              self.uid,
+                                                              label)
+        print s + '\n'
+        lines = [s]
+        return lines
+
+
 class RoslaunchInspector(wx.Frame):
     """
     This class provides a GUI application for viewing roslaunch files.
     """
     def __init__(self, dot_filename=None):
-        wx.Frame.__init__(self, None, -1, "Roslaunch inspector")
+        wx.Frame.__init__(self, None, -1, title="Roslaunch inspector",
+                          size=(640,480))
+        self.CreateStatusBar()
+
+        filemenu= wx.Menu()
+        filemenu.Append(wx.ID_ABOUT, "&About"," Information about this program")
+        filemenu.AppendSeparator()
+        filemenu.Append(wx.ID_EXIT,"E&xit"," Terminate the program")
+        
+        menuBar = wx.MenuBar()
+        menuBar.Append(filemenu,"&File") # Adding the "filemenu" to the MenuBar
+        self.SetMenuBar(menuBar)  # Adding the MenuBar to the Frame content.
+        
+        
         self.graph_view = xdot.wxxdot.WxDotWindow(self, -1)
         #self.graph_view.set_filter('neato')
         
@@ -144,8 +217,7 @@ class RoslaunchInspector(wx.Frame):
         
         
         if not dot_filename is None:
-            graph = gv.AGraph(filename=dot_filename, directed=True)
-            graph.node = {'shape':'record'}
+            pass
         else:
             package = 'openni2_launch'
             launch_file = 'openni2.launch'
@@ -163,24 +235,24 @@ class RoslaunchInspector(wx.Frame):
                 launch_file_obj = LaunchFileParser(path)
                 self.root = RILaunch(launch_file_obj)
             pass
-            
         t = '''digraph {
                graph [rankdir=LR];
                node [label="\N"];
             '''
         t += '\n'.join(self.root.get_dot_lines())
         t += '}'
-        #print t
+
         self.graph_view.set_dotcode(t)
         self.graph_view.zoom_to_fit()
-
+        self.RequestUserAttention()
 
     def select_cb(self, item, event):
         """Event: Click to select a graph node."""
         if event.ButtonUp(wx.MOUSE_BTN_LEFT):
             el = self.root.find_by_uid(int(item.url))
             if isinstance(el, RILaunch):
-                print el.parsed_launch.path
+                print call(["subl", el.parsed_launch.path])
+                #print el.parsed_launch.path
 
 def main(argv):
     app = wx.App()

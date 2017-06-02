@@ -73,15 +73,14 @@ class LaunchRootParser(object):
         file_name = self.parse_xml_value(rosparam_element.get('file'))
         if file_name is None:
             self.add_issue('error: rosparam element does not have a file attribute')
-            return
+            #return
 
         command = self.parse_xml_value(rosparam_element.get('command'))
         if command is None:
             self.add_issue('error: rosparam element does not have a command attribute')
-            return
+            #return
 
         ns = self.parse_xml_value(rosparam_element.get('ns'))
-
         self.rosparams.append({'file': file_name, 'command': command, 'ns': ns})
         return
 
