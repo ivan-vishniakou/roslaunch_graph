@@ -94,9 +94,9 @@ class LaunchRootParser(object):
             self.add_issue('error: node %s has no pkg attribute' % node_name)
             return
 
-        type_name = self.parse_xml_value(node_element.get('type'))
-        if type_name is None:
-            self.add_issue('error: node %s has no type attribute' % type_name)
+        node_type = self.parse_xml_value(node_element.get('type'))
+        if node_type is None:
+            self.add_issue('error: node %s has no type attribute' % node_type)
             return
 
         param_elements = node_element.findall('param')
@@ -112,12 +112,12 @@ class LaunchRootParser(object):
                 self.add_issue('error: param %s of node %s has no value attribute'
                                % (name, node_name))
                 pass
-            type_name = self.parse_xml_value(param_element.get('type'))
-            if type_name is None:
+            param_type = self.parse_xml_value(param_element.get('type'))
+            if param_type is None:
                 self.add_issue('error: param %s of node %s has no type attribute'
                                % (name, node_name))
                 pass
-            params.append({'name': name, 'value': value, 'type': type_name})
+            params.append({'name': name, 'value': value, 'type': param_type})
             pass
 
         remap_elements = node_element.findall('remap')
@@ -136,7 +136,7 @@ class LaunchRootParser(object):
             remaps.append({'from': from_attribute, 'to': to_attribute})
             pass
 
-        self.nodes[node_name] = {'package': package, 'type': type_name,
+        self.nodes[node_name] = {'package': package, 'type': node_type,
                                  'params': params, 'remaps': remaps}
         pass
 
