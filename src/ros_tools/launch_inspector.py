@@ -8,8 +8,8 @@ from subprocess import call
 
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
                             InvalidROSPkgException
-from ros_tools.trace_launch_files import LaunchFileParser
-
+from trace_launch_files import LaunchFileParser
+from launch_parser import RoslaunchElement
 
 class HTML(object):
     """
