@@ -1,221 +1,414 @@
 # -*- coding: utf-8 -*-
 import sys
 import wxversion
+
 wxversion.select("2.8")
 import wx
 import xdot
 from subprocess import call
 
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
-                            InvalidROSPkgException
+    InvalidROSPkgException
 from trace_launch_files import LaunchFileParser
 from launch_parser import RoslaunchElement
+
+import rospkg
 
 class HTML(object):
     """
     Helper class for styling the graphvis nodes.
     """
-    TABLE   = 'TABLE'
-    TD      = 'TD'
-    TR      = 'TR'
-    BR      = '<BR/>'
-    
-    ST_TABLE = 'BORDER="0" CELLBORDER="1" CELLSPACING="0"'
-    ST_HEADER = 'COLSPAN="2"'
-    
+    TABLE = 'TABLE'
+    TD = 'TD'
+    TR = 'TR'
+    FONT='FONT'
+    BR = '<BR/>'
+
+    STYLE_TABLE_MAIN = ' BORDER="1" CELLBORDER="0" CELLPADDING="0" CELLSPACING="0" COLOR="#000000"'
+    STYLE_PADDING = ' CELLPADDING="5"'
+    STYLE_ALIGN_LEFT = ' BALIGN="LEFT" ALIGN="LEFT"'
+    STYLE_INVISIBLE = '  BORDER="0" CELLBORDER="0" CELLSPACING="0"'
+    STYLE_TD_GROUP = ' CELLPADDING="0" CELLBORDER="1"'
+    STYLE_TABLE_INNER = ' BORDER="0" CELLBORDER="0" CELLPADDING="5" CELLSPACING="0"'
+    STYLE_TABLE_CLEAR = ' BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0"'
+    STYLE_TABLE_HIGHLIGHT = ' BGCOLOR="#66FFFF"'
+
     @staticmethod
-    def wrap(TAG, string, attribs='', portname=None):
+    def wrap(TAG, string, attributes='', port=None):
         """Wraps string into HTML as in the template:
         <TAG attribs port="portname">string</TAG>
         """
-        if len(attribs)>0:
-            attribs = ' ' + attribs
-        if not portname is None:
-            attribs += ' PORT="%s"' % portname
+        if len(attributes) > 0:
+            attributes = ' ' + attributes
+        if not port is None:
+            attributes += ' PORT="%s"' % port
         return '<%s%s>%s</%s>' % (TAG,
-                                  attribs,
+                                  attributes,
                                   string,
                                   TAG)
-    
-    
-class RIElement(object):
+
+    @staticmethod
+    def table(content, attributes=STYLE_TABLE_CLEAR, port=None):
+        if port is not None:
+            attributes += ' PORT="%s"' % port
+        t = HTML.wrap(HTML.TABLE, HTML.wrap(
+                HTML.TR,
+                HTML.wrap(
+                    HTML.TD,
+                    content
+                ),
+            ),
+            attributes=attributes
+        )
+        return t
+
+    @staticmethod
+    def list1_2_3(rows):
+        trs = []
+        for r in rows:
+            if len(r) == 1: colspan = 'COLSPAN="6"'
+            elif len(r) == 2: colspan = 'COLSPAN="3"'
+            elif len(r) == 3: colspan = 'COLSPAN="2"'
+            else: colspan = ''
+        return HTML.wrap(HTML.TABLE, '<HR/>'.join(trs), attributes=HTML.STYLE_TABLE_CLEAR)
+
+    @staticmethod
+    def list(el_list):
+        rows = [
+            HTML.wrap(HTML.TR, HTML.wrap(HTML.TD, e, attributes=HTML.STYLE_ALIGN_LEFT))
+            for e in el_list]
+        return HTML.wrap(HTML.TABLE, '<HR/>'.join(rows), attributes=HTML.STYLE_TABLE_CLEAR)
+
+    @staticmethod
+    def header(label, sublabel = '', port=None):
+        return HTML.wrap(
+            HTML.TABLE,
+            HTML.wrap(
+                HTML.TR,
+                HTML.wrap(
+                    HTML.TD,
+                    label,
+                    attributes='ALIGN="CENTER" BGCOLOR="#DEDEDE"', port=port) +
+                    HTML.wrap(
+                        HTML.TD,
+                        sublabel,
+                        attributes='COLSPAN="9"'
+                    )
+                ),
+            HTML.STYLE_TABLE_CLEAR
+        )
+
+    @staticmethod
+    def labelled_cell(label, content, sublabel='', input_port=None, output_port=None):
+        return HTML.wrap(HTML.TABLE, HTML.wrap(HTML.TR,
+                                               HTML.wrap(HTML.TD,
+                                                         label,
+                                                         attributes='ALIGN="CENTER" BGCOLOR="#DEDEDE"',
+                                                         port=input_port) +
+                                               HTML.wrap(HTML.TD,
+                                                         sublabel,
+                                                         attributes='COLSPAN="9"')
+                                               ) +
+                         HTML.wrap(HTML.TR,
+                                   HTML.wrap(HTML.TD, ' ', attributes='COLSPAN="10"'),
+                                   ) +
+                         HTML.wrap(HTML.TR,
+                                   HTML.wrap(HTML.TD,
+                                             HTML.table(
+                                                content,
+                                                attributes=HTML.STYLE_PADDING + HTML.STYLE_INVISIBLE
+                                             ),
+                                             attributes='COLSPAN="10" BALIGN="LEFT"'),
+                                   ) +
+                         HTML.wrap(HTML.TR,
+                                   HTML.wrap(HTML.TD, ' ', attributes='COLSPAN="10"'),
+                                   ), HTML.STYLE_TABLE_CLEAR, port=output_port)
+
+    @staticmethod
+    def invisible_table(string2darray):
+        if len(string2darray)==0:
+            return ''
+        rows = []
+        for row in string2darray:
+            r = HTML.wrap(HTML.TR, ''.join(
+                [HTML.wrap(HTML.TD, col, attributes='ALIGN="LEFT" BALIGN="LEFT" VALIGN="TOP"') for col in row]))
+            rows.append(r)
+        t = HTML.wrap(HTML.TABLE, ''.join(rows), attributes=HTML.STYLE_TABLE_INNER)
+        return t
+
+
+class DotElement(object):
     """
     Base class for nodes drawn in graphvis.
     """
-    #Unique id for the node
+    # Unique id for the node
     uid_counter = 0
-    
+
     @staticmethod
     def trim_str(s):
-        return s[:50]+' ... '+s[-50:] if len(s)>100 else s
+        if ' ' in s:
+            return HTML.BR.join(s.split())
+        elif '/' in s and len(s)>50:
+            return '.../'+'/'.join(s.split('/')[-2:])
+        return s[:50] + ' ... ' + s[-50:] if len(s) > 100 else s
 
-    def __init__(self):
+    def __init__(self, roslaunch_element=None, parent=None, text=None):
         self.children = []
         self.input_args = []
-        self.uid = RINode.uid_counter
-        RIElement.uid_counter += 1
+        self.uid = DotElement.uid_counter
+        self.text = text if text is not None else roslaunch_element.text
+        DotElement.uid_counter += 1
+        self.roslaunch_element = roslaunch_element
+        self.parent=parent
+        self.condition = True
+
+        if self.roslaunch_element is not None:
+
+            if self.roslaunch_element.attributes.has_key('if'):
+                if self.roslaunch_element.attributes['if']['resolved'] == RoslaunchElement.FALSE:
+                    self.condition = False
+            if self.roslaunch_element.attributes.has_key('unless'):
+                if self.roslaunch_element.attributes['unless']['resolved'] == RoslaunchElement.TRUE:
+                    self.condition = False
+
+            if self.parent is not None:
+                if self.parent.condition == False:
+                    self.condition = False
+
+            for c in self.roslaunch_element.children:
+                if c.type == RoslaunchElement.MACHINE:
+                    self.children.append(DotTableElement(c, parent=self))
+                elif c.type == RoslaunchElement.GROUP:
+                    self.children.append(DotGroup(c, parent=self))
+                elif c.type == RoslaunchElement.LAUNCH or \
+                        c.type == RoslaunchElement.INCLUDE:
+                    self.children.append(DotRoslaunch(c, parent=self))
+                elif c.type == RoslaunchElement.PARAM:
+                    self.children.append(DotParam(c, parent=self))
+                elif c.type == RoslaunchElement.NODE:
+                    self.children.append(DotNode(c, parent=self))
+                elif c.type == RoslaunchElement.ROSPARAM:
+                    self.children.append(DotRosparam(c, parent=self))
+                elif c.type == RoslaunchElement.ARG:
+                    self.children.append(DotArg(c, parent=self))
+                elif c.type == RoslaunchElement.REMAP:
+                    self.children.append(DotRemap(c, parent=self))
+                else:
+                    self.children.append(DotGraphElement(c, parent=self))
+
+    def get_condition_string(self):
+        if self.roslaunch_element.attributes.has_key('if'):
+            return ' if %s (%s)' % (self.roslaunch_element.attributes['if']['variable'],
+                                    self.roslaunch_element.attributes['if']['resolved'])
+        elif self.roslaunch_element.attributes.has_key('unless'):
+            return ' unless %s (%s)' % (self.roslaunch_element.attributes['unless']['variable'],
+                                        self.roslaunch_element.attributes['unless']['resolved'])
+        else: return ''
+
 
     def find_by_uid(self, uid):
         if self.uid == uid:
             return self
         for c in self.children:
             ri_el = c.find_by_uid(uid)
-            if not ri_el is None:
+            if ri_el is not None:
                 return ri_el
         return None
 
-    def get_dot_lines(self):
-        """Returns the lines of the dot representation of the element
-        """
-        s = '''%s [URL=%s, label="node %s" shape=record];''' % (self.uid,
-                                                                self.uid,
-                                                                self.uid)
-        lines = [s]
+    def find_graph_element(self):
+        if isinstance(self, DotGraphElement):
+            return self.uid
+        if self.parent is None:
+            return None
+        else:
+            return self.parent.find_graph_element()
+
+    def get_table_style(self):
+        st = HTML.STYLE_TABLE_MAIN
+        if self.condition == False:
+                st += ' BGCOLOR="#999999"'
+        return st
+
+    def get_header(self):
+        return HTML.labelled_cell(self.roslaunch_element.type, self.roslaunch_element.attributes['name']['resolved'],
+                                  input_port='head%s', output_port='tail%s' % (self.uid, self.uid))
+
+    def get_inner_elements(self):
+        inserts = []
         for c in self.children:
-            lines.extend(c.get_dot_lines())
-        return lines
-
-
-class RILaunch(RIElement):
-
-    def __init__(self, parsed_launch):
-        super(RILaunch, self).__init__()
-        
-        self.parsed_launch = parsed_launch
-        
-        for l in parsed_launch.includes:
-            self.children.append(RILaunch(l))
-        
-        self.input_args = self.parsed_launch.input_arg_dict.keys()
-            
-        for n in self.parsed_launch.nodes.keys():
-            self.children.append(RINode(n, self.parsed_launch.nodes[n]))
-            
-        for r in self.parsed_launch.rosparams:
-            self.children.append(RIRosparam(r))
-
-    def get_dot_lines(self):
-        header_dot_str = '<head>\n %s \t %s \n \t|%s' % (self.parsed_launch.package_name,
-                                                         self.parsed_launch.file_name,
-                                                         self.parsed_launch.path)
-        output_args = sorted(self.parsed_launch.arg_dict.keys())
-        input_vals = ['<in_%s> ' % a + RIElement.trim_str(
-                                        self.parsed_launch.input_arg_dict[a]
-                                                         )
-                      if a in self.parsed_launch.input_arg_dict.keys() else ' '
-                      for a in output_args]
-        output_vals = ['<out_%s> ' % a + RIElement.trim_str(
-                                        self.parsed_launch.arg_dict[a]
-                                                            )
-                      if a in self.parsed_launch.arg_dict.keys() else ' '
-                      for a in output_args]
-        args_dot_str = '{{'+'|'.join(input_vals)+'}|{'+\
-                          '|'.join(output_args)+\
-                          '}|{'+'|'.join(output_vals)+'}}'
-        label='|'.join([header_dot_str, args_dot_str])
-
-        s = '''%s [URL=%s, label="%s" shape=record];''' % (self.uid,
-                                                          self.uid,
-                                                          label)
-        lines = [s]
-        for c in self.children:
-            
-            u, v = self.uid, c.uid
-            lines.append('%s:head -> %s:head;' % (u, v))
-            
-            lines.extend(c.get_dot_lines())
-            edges = [('%s:out_%s' % (self.uid,a),
-                     ('%s:in_%s' % (c.uid,a))) for a in output_args
-                      if a in c.input_args]
-            for u, v in edges:
-                lines.append('%s -> %s [arrowsize=0.5, penwidth=0.5];' % (u, v))
-        return lines
-
-
-class RINode(RIElement):
-
-    def __init__(self, nodename, nodeparams):
-        super(RINode, self).__init__()
-        self.name = nodename
-        self.params = nodeparams
-
-    def get_dot_lines(self):
-        label = '{<head>\n %s \n\t |%s \t %s}' % (self.name,
-                                                  self.params['package'],
-                                                  self.params['type'])
-        
-        param_names = [p['name'] for p in self.params['params']]
-        param_values = [RIElement.trim_str(p['value']) for p in self.params['params']]
-        label += '|{{' + '|'.join(param_names) + '}|{' + '|'.join(param_values) + '}}'
-        
-        s = '''%s [URL=%s, label="%s" shape=record]''' % (self.uid,
-                                                          self.uid,
-                                                          label)
-        lines = [s]
-        return lines
-
-        
-class RIRosparam(RIElement):
-
-    def __init__(self, params):
-        super(RIRosparam, self).__init__()
-        self.params = params
-
-    def get_dot_lines(self):
-        
-        header_str = 'ROSPARAM \t NS: %s \t COMMAND: %s' % (self.params['ns'],
-                                                            self.params['command'])
-        label = HTML.wrap(HTML.TABLE,
-                    HTML.wrap(HTML.TR,
-                        HTML.wrap(HTML.TD, header_str,
-                                  attribs=HTML.ST_HEADER,
-                                  portname='head'
-                                  )
-                              )+\
-                        HTML.wrap(HTML.TR, 
-                            HTML.wrap(HTML.TD, self.params['file'],
-                                      attribs=HTML.ST_HEADER
-                                      )
-                                 ),
-                        attribs=HTML.ST_TABLE
+            if isinstance(c, DotTableElement):
+                inner = c.get_inner_elements()
+                if c.roslaunch_element.type==RoslaunchElement.MACHINE or \
+                        c.roslaunch_element.type == RoslaunchElement.GROUP:
+                    inserts.append(
+                        HTML.table(
+                            HTML.table(
+                                HTML.list(
+                                    [c.get_header()] + c.get_inner_elements()
+                                ), attributes=c.get_table_style()
+                            ),
+                            attributes=HTML.STYLE_PADDING + HTML.STYLE_INVISIBLE
                         )
-        #label = '<head>\nrosparam \t ns: %s \t command:%s\n \t|%s' % (self.params['ns'],
-        #                                                      self.params['command'],
-        #                                                      self.params['file'])
-           
+                    )
+                else:
+                    inserts.append(
+                        HTML.table(
+                                HTML.list(
+                                    [c.get_header()]
+                            ), attributes=HTML.STYLE_PADDING + HTML.STYLE_INVISIBLE
+                        )
+                    )
+        return inserts
+
+    def get_dot_lines(self, selected=None):
+        label = HTML.table(
+            HTML.table(
+                HTML.list([self.get_header()] + self.get_inner_elements()),
+                attributes='BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0" COLOR="#CCCCCC"'
+            ),
+            attributes=self.get_table_style(),
+            port='tail'
+        )
         s = '''%s [URL=%s, label=<%s> shape=plaintext];''' % (self.uid,
                                                               self.uid,
                                                               label)
-        print s + '\n'
-        lines = [s]
+        lines = [s] + self.get_children_dot_lines(selected) + self.get_edges_dot_lines(selected)
         return lines
+
+    def get_children_dot_lines(self, selected=None):
+        lines = []
+        for c in self.children:
+            lines.extend(c.get_dot_lines(selected))
+        return lines
+
+    def get_edges_dot_lines(self, selected=None):
+        lines = []
+        for c in self.children:
+            if not isinstance(c, DotTableElement):
+                lines.append('%s:tail%s -> %s:head%s [arrowsize=0.5, penwidth=0.5];' % (self.find_graph_element(),
+                                                                                        self.uid,
+                                                                                        c.uid, c.uid))
+        return lines
+
+
+class DotGraphElement(DotElement):
+
+    pass
+
+
+class DotTableElement(DotElement):
+
+    def get_header(self):
+        return HTML.labelled_cell(
+            self.roslaunch_element.type,'',
+            self.roslaunch_element.attributes['ns']['resolved'],
+            output_port='tail%s' % self.uid)
+
+
+    def get_dot_lines(self, selected=None):
+        return self.get_children_dot_lines(selected) + self.get_edges_dot_lines(selected)
+    pass
+
+
+class DotGroup(DotTableElement):
+
+    def get_header(self):
+        if self.roslaunch_element.attributes.has_key('ns'):
+            sub_label = 'ns: %s;' % self.roslaunch_element.attributes['ns']['resolved']
+        else:
+            sub_label = ''
+
+        label = self.get_condition_string()
+
+        return HTML.labelled_cell(
+            self.roslaunch_element.type, label,
+            sub_label,
+            output_port='tail%s' % self.uid)
+
+
+class DotParam(DotTableElement):
+
+    def get_header(self):
+        return '<FONT POINT-SIZE="11">param %s %s</FONT><BR/>'% (self.roslaunch_element.attributes['type']['resolved'],
+                                                                self.get_condition_string()) +\
+            self.roslaunch_element.attributes['name']['resolved'] + ': ' +\
+            self.roslaunch_element.attributes['value']['resolved']
+
+
+class DotArg(DotTableElement):
+
+    def get_header(self):
+        return self.roslaunch_element.attributes['name']['resolved'] + ':' + \
+               HTML.BR + self.trim_str(self.roslaunch_element.attributes['value']['resolved'])
+
+
+class DotRemap(DotTableElement):
+
+    def get_header(self):
+        return '<FONT POINT-SIZE="11">remap%s</FONT><BR/>' % (self.get_condition_string()) +\
+            self.roslaunch_element.attributes['from']['resolved'] + ' &rArr; ' + \
+            self.roslaunch_element.attributes['to']['resolved']
+
+
+class DotNode(DotGraphElement):
+
+    def get_header(self):
+        return HTML.labelled_cell(
+            self.roslaunch_element.type,
+            '%s %s' % (self.roslaunch_element.attributes['pkg']['resolved'],
+                       self.roslaunch_element.attributes['type']['resolved']),
+            self.roslaunch_element.attributes['name']['resolved'],
+            input_port='head%s' % self.uid, output_port='tail%s' % self.uid
+                                  )
+        #return HTML.header(self.roslaunch_element.type, self.roslaunch_element.attributes['name']['resolved'], port='head%s' % self.uid)
+        pass
+
+
+class DotRosparam(DotGraphElement):
+
+    def get_header(self):
+        path = self.roslaunch_element.attributes['file']['resolved']
+        return HTML.labelled_cell(self.roslaunch_element.type, rospkg.get_package_name(path) + '/' + path.split('/')[-1],
+                                  self.roslaunch_element.attributes['command']['resolved'], input_port='head%s' % self.uid)
+
+
+class DotRoslaunch(DotGraphElement):
+
+    def get_header(self):
+        path = self.roslaunch_element.attributes['file']['resolved']
+        return HTML.labelled_cell(
+            self.roslaunch_element.type, rospkg.get_package_name(path) + '  ' + path.split('/')[-1],
+            self.roslaunch_element.attributes['ns']['resolved'], input_port='head%s' % self.uid, output_port='tail%s' % self.uid
+        )
 
 
 class RoslaunchInspector(wx.Frame):
     """
     This class provides a GUI application for viewing roslaunch files.
     """
+
     def __init__(self, dot_filename=None):
         wx.Frame.__init__(self, None, -1, title="Roslaunch inspector",
-                          size=(640,480))
+                          size=(640, 480))
         self.CreateStatusBar()
 
-        filemenu= wx.Menu()
-        filemenu.Append(wx.ID_ABOUT, "&About"," Information about this program")
+        filemenu = wx.Menu()
+        filemenu.Append(wx.ID_ABOUT, "&About", " Information about this program")
         filemenu.AppendSeparator()
-        filemenu.Append(wx.ID_EXIT,"E&xit"," Terminate the program")
-        
+        filemenu.Append(wx.ID_EXIT, "E&xit", " Terminate the program")
+
         menuBar = wx.MenuBar()
-        menuBar.Append(filemenu,"&File") # Adding the "filemenu" to the MenuBar
+        menuBar.Append(filemenu, "&File")  # Adding the "filemenu" to the MenuBar
         self.SetMenuBar(menuBar)  # Adding the MenuBar to the Frame content.
-        
-        
+
         self.graph_view = xdot.wxxdot.WxDotWindow(self, -1)
         #self.graph_view.set_filter('neato')
-        
+
+        self.selected = []
         self.graph_view.register_select_callback(self.select_cb)
-        
-        
+
+
+
         if not dot_filename is None:
             pass
         else:
@@ -225,42 +418,55 @@ class RoslaunchInspector(wx.Frame):
             package = 'cob_people_detection'
             launch_file = 'people_detection_with_viewer.launch'
 
-            package = 'mdr_moveit_cob'
-            launch_file = 'demo.launch'
-            
+            #package = 'mdr_moveit_cob'
+            #launch_file = 'demo.launch'
+
             launch_file_paths = find_resource(package, launch_file)
-            #print launch_file_paths
+            # print launch_file_paths
 
             for path in launch_file_paths:
                 launch_file_obj = LaunchFileParser(path)
-                self.root = RILaunch(launch_file_obj)
+                # self.root = RILaunch(launch_file_obj)
+                self.root = DotRoslaunch(RoslaunchElement(RoslaunchElement.load_xml(path)))
             pass
-        t = '''digraph {
-               graph [rankdir=LR];
-               node [label="\N"];
-            '''
-        t += '\n'.join(self.root.get_dot_lines())
-        t += '}'
 
-        self.graph_view.set_dotcode(t)
-        self.graph_view.zoom_to_fit()
+        self.update_graph()
         self.RequestUserAttention()
+        self.graph_view.zoom_to_fit()
 
     def select_cb(self, item, event):
         """Event: Click to select a graph node."""
         if event.ButtonUp(wx.MOUSE_BTN_LEFT):
             el = self.root.find_by_uid(int(item.url))
-            if isinstance(el, RILaunch):
-                print call(["subl", el.parsed_launch.path])
-                #print el.parsed_launch.path
+            #self.graph_view.ge
+            if isinstance(el, DotElement):
+                print item.url
+                item.highlight=None
+                self.selected = item.url
+                self.graph_view.set_highlight(item.item)
+                #if 'file' in el.roslaunch_element.attributes.keys():
+                print call(["subl", el.roslaunch_element.attributes['file']['resolved']])
+                self.update_graph()
+
+    def update_graph(self):
+        t = '''digraph {
+                       graph [rankdir=LR];
+                       node [label="\N"];
+                    '''
+        t += '\n'.join(self.root.get_dot_lines(selected=self.selected))
+        t += '}'
+        self.graph_view.set_dotcode(t)
+        self.graph_view.Refresh()
+        pass
+
 
 def main(argv):
     app = wx.App()
-    frame = RoslaunchInspector(dot_filename=argv[1] if len(argv)>=2 else None)
+    frame = RoslaunchInspector(dot_filename=argv[1] if len(argv) >= 2 else None)
     frame.Show()
     app.MainLoop()
 
 
 if __name__ == '__main__':
-    #assert len(sys.argv) == 2, 'dot filename input needed'
+    # assert len(sys.argv) == 2, 'dot filename input needed'
     main(sys.argv)
