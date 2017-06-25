@@ -28,7 +28,6 @@ class HTML(object):
     STYLE_PADDING = ' CELLPADDING="5"'
     STYLE_ALIGN_LEFT = ' BALIGN="LEFT" ALIGN="LEFT"'
     STYLE_INVISIBLE = '  BORDER="0" CELLBORDER="0" CELLSPACING="0"'
-    STYLE_TD_GROUP = ' CELLPADDING="0" CELLBORDER="1"'
     STYLE_TABLE_INNER = ' BORDER="0" CELLBORDER="0" CELLPADDING="5" CELLSPACING="0"'
     STYLE_TABLE_CLEAR = ' BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0"'
     STYLE_TABLE_HIGHLIGHT = ' BGCOLOR="#66FFFF"'
@@ -48,15 +47,24 @@ class HTML(object):
                                   TAG)
 
     @staticmethod
-    def table(content, attributes=STYLE_TABLE_CLEAR, port=None):
+    def pad(content, attributes=''):
+        return HTML.table(
+            content,
+            attributes='BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" '+ attributes,
+            td_attributes='BALIGN="LEFT" ALIGN="LEFT"'
+        )
+
+    @staticmethod
+    def table(content, attributes=STYLE_TABLE_CLEAR, td_attributes='', port=None):
         if port is not None:
             attributes += ' PORT="%s"' % port
         t = HTML.wrap(HTML.TABLE, HTML.wrap(
                 HTML.TR,
                 HTML.wrap(
                     HTML.TD,
-                    content
-                ),
+                    content,
+                    attributes=td_attributes
+                )
             ),
             attributes=attributes
         )
@@ -65,12 +73,18 @@ class HTML(object):
     @staticmethod
     def list1_2_3(rows):
         trs = []
-        for r in rows:
-            if len(r) == 1: colspan = 'COLSPAN="6"'
-            elif len(r) == 2: colspan = 'COLSPAN="3"'
-            elif len(r) == 3: colspan = 'COLSPAN="2"'
+        for tr in rows:
+            tmp = ''
+            if len(tr) == 1: colspan = 'COLSPAN="6"'
+            elif len(tr) == 2: colspan = 'COLSPAN="3"'
+            elif len(tr) == 3: colspan = 'COLSPAN="2"'
             else: colspan = ''
-        return HTML.wrap(HTML.TABLE, '<HR/>'.join(trs), attributes=HTML.STYLE_TABLE_CLEAR)
+            for td in tr:
+                tmp += HTML.wrap(HTML.TD, td, attributes=colspan + ' BALIGN="LEFT" ALIGN="LEFT"')
+
+            trs.append(HTML.wrap(HTML.TR, tmp))
+        return '<HR/>'.join(trs)
+        #return HTML.wrap(HTML.TABLE, '<HR/>'.join(trs), attributes=HTML.STYLE_TABLE_CLEAR + ' COLUMNS="6"')
 
     @staticmethod
     def list(el_list):
@@ -231,7 +245,7 @@ class DotElement(object):
 
     def get_header(self):
         return HTML.labelled_cell(self.roslaunch_element.type, self.roslaunch_element.attributes['name']['resolved'],
-                                  input_port='head%s', output_port='tail%s' % (self.uid, self.uid))
+                                  input_port='head%s' % self.uid, output_port='tail%s' % self.uid)
 
     def get_inner_elements(self):
         inserts = []
@@ -240,30 +254,27 @@ class DotElement(object):
                 inner = c.get_inner_elements()
                 if c.roslaunch_element.type==RoslaunchElement.MACHINE or \
                         c.roslaunch_element.type == RoslaunchElement.GROUP:
-                    inserts.append(
+                    inserts.append([
                         HTML.table(
                             HTML.table(
-                                HTML.list(
-                                    [c.get_header()] + c.get_inner_elements()
+                                HTML.wrap(
+                                    HTML.TABLE,
+                                    HTML.list1_2_3(
+                                        [c.get_header()] + c.get_inner_elements()
+                                    ),  attributes=HTML.STYLE_TABLE_CLEAR + ' COLOR="#CCCCCC"'
                                 ), attributes=c.get_table_style()
-                            ),
-                            attributes=HTML.STYLE_PADDING + HTML.STYLE_INVISIBLE
-                        )
-                    )
-                else:
-                    inserts.append(
-                        HTML.table(
-                                HTML.list(
-                                    [c.get_header()]
                             ), attributes=HTML.STYLE_PADDING + HTML.STYLE_INVISIBLE
                         )
-                    )
+                    ])
+                else:
+                    inserts.append(c.get_header())
         return inserts
 
     def get_dot_lines(self, selected=None):
         label = HTML.table(
-            HTML.table(
-                HTML.list([self.get_header()] + self.get_inner_elements()),
+            HTML.wrap(
+                HTML.TABLE,
+                HTML.list1_2_3([self.get_header()] + self.get_inner_elements()),
                 attributes='BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0" COLOR="#CCCCCC"'
             ),
             attributes=self.get_table_style(),
@@ -285,7 +296,7 @@ class DotElement(object):
         lines = []
         for c in self.children:
             if not isinstance(c, DotTableElement):
-                lines.append('%s:tail%s -> %s:head%s [arrowsize=0.5, penwidth=0.5];' % (self.find_graph_element(),
+                lines.append('%s:tail%s -> %s:head%s [arrowsize=0.8, penwidth=0.5];' % (self.find_graph_element(),
                                                                                         self.uid,
                                                                                         c.uid, c.uid))
         return lines
@@ -299,10 +310,10 @@ class DotGraphElement(DotElement):
 class DotTableElement(DotElement):
 
     def get_header(self):
-        return HTML.labelled_cell(
+        return [HTML.labelled_cell(
             self.roslaunch_element.type,'',
             self.roslaunch_element.attributes['ns']['resolved'],
-            output_port='tail%s' % self.uid)
+            output_port='tail%s' % self.uid)]
 
 
     def get_dot_lines(self, selected=None):
@@ -320,47 +331,95 @@ class DotGroup(DotTableElement):
 
         label = self.get_condition_string()
 
-        return HTML.labelled_cell(
+        return [HTML.labelled_cell(
             self.roslaunch_element.type, label,
             sub_label,
-            output_port='tail%s' % self.uid)
+            output_port='tail%s' % self.uid)]
 
 
 class DotParam(DotTableElement):
 
     def get_header(self):
-        return '<FONT POINT-SIZE="11">param %s %s</FONT><BR/>'% (self.roslaunch_element.attributes['type']['resolved'],
-                                                                self.get_condition_string()) +\
-            self.roslaunch_element.attributes['name']['resolved'] + ': ' +\
-            self.roslaunch_element.attributes['value']['resolved']
+        cells = [
+                '<FONT POINT-SIZE="11">param %s</FONT><BR/>' % (
+                    self.get_condition_string() + '&nbsp;'
+                ) + self.roslaunch_element.attributes['name']['resolved'],
+                '<FONT POINT-SIZE="11">&nbsp;</FONT><BR/>:',
+                '<FONT POINT-SIZE="11">%s &nbsp;</FONT><BR/>' % self.roslaunch_element.attributes['type']['resolved'] +
+                self.roslaunch_element.attributes['value']['resolved'] + '&nbsp;'
+            ]
+        return [HTML.pad(t, attributes='BGCOLOR="#999999"' if not self.condition else '') for t in cells]
 
 
 class DotArg(DotTableElement):
 
     def get_header(self):
-        return self.roslaunch_element.attributes['name']['resolved'] + ':' + \
-               HTML.BR + self.trim_str(self.roslaunch_element.attributes['value']['resolved'])
+        if self.roslaunch_element.attributes.has_key('default'):
+            # input and default
+            cells = [
+                '<FONT POINT-SIZE="11">arg %s %s</FONT><BR/>%s' % (
+                    self.roslaunch_element.attributes['name']['resolved'],
+                    self.get_condition_string() + '&nbsp;',
+                    self.roslaunch_element.input_arg_dict[self.roslaunch_element.attributes['name']['resolved']]+'&emsp;'
+                ),
+                '<FONT POINT-SIZE="11">default</FONT><BR/>%s' %
+                self.roslaunch_element.attributes['default']['resolved'] + '&nbsp;'
+            ]
+        elif self.roslaunch_element.attributes.has_key('value'):
+            # non-overrideable constant
+            cells = [
+                '<FONT POINT-SIZE="11">arg %s %s</FONT><BR/>' % (
+                    self.roslaunch_element.attributes['name']['resolved'],
+                    self.get_condition_string() + '&nbsp;'
+                ),
+                '<FONT POINT-SIZE="11">default</FONT><BR/>%s' %
+                self.roslaunch_element.attributes['value']['resolved'] + '&emsp;'
+            ]
+        else:
+            # not set variable declared, should be passed
+            cells = [
+                '<FONT POINT-SIZE="11">arg %s %s</FONT><BR/>%s' % (
+                    self.roslaunch_element.attributes['name']['resolved'],
+                    self.get_condition_string() + '&nbsp;',
+                    self.roslaunch_element.input_arg_dict[self.roslaunch_element.attributes['name']['resolved']] +'&emsp;'
+                )
+            ]
+        return map(HTML.pad, cells)
+        return map(
+            HTML.pad,
+            [
+            '<FONT POINT-SIZE="11">arg %s %s</FONT><BR/>' % (
+                self.roslaunch_element.attributes['name']['resolved'],
+                self.get_condition_string() + '&nbsp;'
+            ) + self.roslaunch_element.attributes['value']['resolved'],
+            '<FONT POINT-SIZE="11">default</FONT><BR/>' +
+            self.roslaunch_element.attributes['default']['resolved'] + '&nbsp;'
+            ]
+        )
 
 
 class DotRemap(DotTableElement):
 
     def get_header(self):
-        return '<FONT POINT-SIZE="11">remap%s</FONT><BR/>' % (self.get_condition_string()) +\
-            self.roslaunch_element.attributes['from']['resolved'] + ' &rArr; ' + \
+        tds = [
+            '<FONT POINT-SIZE="11">remap from%s</FONT><BR/>' % (self.get_condition_string()) +
+            self.roslaunch_element.attributes['from']['resolved'],
+            '<FONT POINT-SIZE="11">&nbsp; </FONT><BR/>&rArr;',
+            '<FONT POINT-SIZE="11">to</FONT><BR/>' +
             self.roslaunch_element.attributes['to']['resolved']
-
+        ]
+        return map(HTML.pad, tds)
 
 class DotNode(DotGraphElement):
 
     def get_header(self):
-        return HTML.labelled_cell(
+        return [HTML.labelled_cell(
             self.roslaunch_element.type,
-            '%s %s' % (self.roslaunch_element.attributes['pkg']['resolved'],
+            '%s&emsp;%s' % (self.roslaunch_element.attributes['pkg']['resolved'],
                        self.roslaunch_element.attributes['type']['resolved']),
             self.roslaunch_element.attributes['name']['resolved'],
             input_port='head%s' % self.uid, output_port='tail%s' % self.uid
-                                  )
-        #return HTML.header(self.roslaunch_element.type, self.roslaunch_element.attributes['name']['resolved'], port='head%s' % self.uid)
+                                  )]
         pass
 
 
@@ -368,18 +427,18 @@ class DotRosparam(DotGraphElement):
 
     def get_header(self):
         path = self.roslaunch_element.attributes['file']['resolved']
-        return HTML.labelled_cell(self.roslaunch_element.type, rospkg.get_package_name(path) + '/' + path.split('/')[-1],
-                                  self.roslaunch_element.attributes['command']['resolved'], input_port='head%s' % self.uid)
+        return [HTML.labelled_cell(self.roslaunch_element.type, rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1],
+                                  self.roslaunch_element.attributes['command']['resolved'], input_port='head%s' % self.uid)]
 
 
 class DotRoslaunch(DotGraphElement):
 
     def get_header(self):
         path = self.roslaunch_element.attributes['file']['resolved']
-        return HTML.labelled_cell(
-            self.roslaunch_element.type, rospkg.get_package_name(path) + '  ' + path.split('/')[-1],
+        return [HTML.labelled_cell(
+            self.roslaunch_element.type, rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1],
             self.roslaunch_element.attributes['ns']['resolved'], input_port='head%s' % self.uid, output_port='tail%s' % self.uid
-        )
+        )]
 
 
 class RoslaunchInspector(wx.Frame):
@@ -455,6 +514,7 @@ class RoslaunchInspector(wx.Frame):
                     '''
         t += '\n'.join(self.root.get_dot_lines(selected=self.selected))
         t += '}'
+
         self.graph_view.set_dotcode(t)
         self.graph_view.Refresh()
         pass
