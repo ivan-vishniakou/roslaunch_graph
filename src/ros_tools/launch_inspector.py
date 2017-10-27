@@ -234,8 +234,9 @@ class DotElement(object):
 
     def find_launch_file(self):
         if self.roslaunch_element.attributes.has_key('file'):
-            return self.roslaunch_element.attributes['file']['resolved']
-        elif self.parent is not None:
+            if self.roslaunch_element.attributes['file']['resolved']!='':
+                return self.roslaunch_element.attributes['file']['resolved']
+        if self.parent is not None:
             return self.parent.find_launch_file()
         else:
             return None
@@ -431,7 +432,7 @@ class DotRosparam(DotGraphElement):
             return [
                 HTML.labelled_cell(
                     self.roslaunch_element.type,
-                    self.roslaunch_element.text,
+                        self.roslaunch_element.text,
                     self.roslaunch_element.attributes['param']['resolved'],
                     input_port='head%s' % self.uid
                 )
