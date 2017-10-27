@@ -427,7 +427,7 @@ class DotRosparam(DotGraphElement):
 
     def get_header(self):
         path = self.roslaunch_element.attributes['file']['resolved']
-        if self.roslaunch_element.text != '':
+        if self.roslaunch_element.text != '' and self.roslaunch_element.text is not None:
             return [
                 HTML.labelled_cell(
                     self.roslaunch_element.type,
