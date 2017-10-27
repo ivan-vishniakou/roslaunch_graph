@@ -1,18 +1,24 @@
 # -*- coding: utf-8 -*-
 import sys
 import wxversion
-
 wxversion.select("2.8")
 import wx
 import xdot
 from subprocess import call
-
+import subprocess
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
-    InvalidROSPkgException
+    InvalidROSPkgException, list_pkgs_by_path
 from trace_launch_files import LaunchFileParser
 from launch_parser import RoslaunchElement
 
+
+from collections import defaultdict
 import rospkg
+import os
+
+
+
+
 
 class HTML(object):
     """
@@ -223,11 +229,20 @@ class DotElement(object):
     def find_by_uid(self, uid):
         if self.uid == uid:
             return self
+        
         for c in self.children:
             ri_el = c.find_by_uid(uid)
             if ri_el is not None:
                 return ri_el
         return None
+
+    def find_launch_file(self):
+        if self.roslaunch_element.attributes.has_key('file'):
+            return self.roslaunch_element.attributes['file']['resolved']
+        elif self.parent is not None:
+            return self.parent.find_launch_file()
+        else:
+            return None
 
     def find_graph_element(self):
         if isinstance(self, DotGraphElement):
@@ -325,7 +340,7 @@ class DotGroup(DotTableElement):
 
     def get_header(self):
         if self.roslaunch_element.attributes.has_key('ns'):
-            sub_label = 'ns: %s;' % self.roslaunch_element.attributes['ns']['resolved']
+            sub_label = 'ns: %s' % self.roslaunch_element.attributes['ns']['resolved']
         else:
             sub_label = ''
 
@@ -384,18 +399,7 @@ class DotArg(DotTableElement):
                     self.roslaunch_element.input_arg_dict[self.roslaunch_element.attributes['name']['resolved']] +'&emsp;'
                 )
             ]
-        return map(HTML.pad, cells)
-        return map(
-            HTML.pad,
-            [
-            '<FONT POINT-SIZE="11">arg %s %s</FONT><BR/>' % (
-                self.roslaunch_element.attributes['name']['resolved'],
-                self.get_condition_string() + '&nbsp;'
-            ) + self.roslaunch_element.attributes['value']['resolved'],
-            '<FONT POINT-SIZE="11">default</FONT><BR/>' +
-            self.roslaunch_element.attributes['default']['resolved'] + '&nbsp;'
-            ]
-        )
+        return [HTML.pad(t, attributes='BGCOLOR="#999999"' if not self.condition else '') for t in cells]
 
 
 class DotRemap(DotTableElement):
@@ -445,53 +449,87 @@ class RoslaunchInspector(wx.Frame):
     """
     This class provides a GUI application for viewing roslaunch files.
     """
+    @staticmethod
+    def list_launch_files(path):
+        if path is None or not os.path.exists(path):
+            return []
+        listed = []
+        for fn in sorted(os.listdir(path)):
+            full_path = os.path.join(path, fn)
+            if os.path.isfile(full_path):
+                if '.launch' in fn:
+                    listed.append(full_path)
+                    print full_path
+            elif os.path.isdir(full_path):
+                listed.extend(RoslaunchInspector.list_launch_files(full_path))
+        return listed
+
 
     def __init__(self, dot_filename=None):
         wx.Frame.__init__(self, None, -1, title="Roslaunch inspector",
                           size=(640, 480))
-        self.CreateStatusBar()
 
-        filemenu = wx.Menu()
-        filemenu.Append(wx.ID_ABOUT, "&About", " Information about this program")
-        filemenu.AppendSeparator()
-        filemenu.Append(wx.ID_EXIT, "E&xit", " Terminate the program")
+        self.panel = wx.Panel(self, wx.ID_ANY)
+        self.graph_view = xdot.wxxdot.WxDotWindow(self.panel, -1)
 
-        menuBar = wx.MenuBar()
-        menuBar.Append(filemenu, "&File")  # Adding the "filemenu" to the MenuBar
-        self.SetMenuBar(menuBar)  # Adding the MenuBar to the Frame content.
+        main_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        right_panel = wx.BoxSizer(wx.VERTICAL)
 
-        self.graph_view = xdot.wxxdot.WxDotWindow(self, -1)
-        #self.graph_view.set_filter('neato')
+        pkg_box = wx.StaticBox(self.panel, wx.ID_ANY, 'package')
+        pkg_box_sizer = wx.StaticBoxSizer(pkg_box, wx.VERTICAL)
+        self.pkg_input = wx.TextCtrl(self.panel)
+        self.pkg_list = wx.ListBox(self.panel, wx.ID_ANY)
+        pkg_box_sizer.Add(self.pkg_input, 0, wx.ALL|wx.EXPAND, 5)
+        pkg_box_sizer.Add(self.pkg_list, -1, wx.ALL|wx.EXPAND, 5)
 
-        self.selected = []
+        launch_box = wx.StaticBox(self.panel, wx.ID_ANY, 'launch')
+        launch_box_sizer = wx.StaticBoxSizer(launch_box, wx.VERTICAL)
+        self.launch_list = wx.ListBox(self.panel, wx.ID_ANY)
+        launch_box_sizer.Add(self.launch_list, -1, wx.ALL | wx.EXPAND, 1)
+
+
+        right_panel.Add(pkg_box_sizer, 1, wx.ALL|wx.EXPAND, 5)
+        right_panel.Add(launch_box_sizer, 1, wx.ALL|wx.EXPAND, 5)
+
+
+        main_sizer.Add(self.graph_view, 8, wx.ALL|wx.EXPAND)
+        main_sizer.Add(right_panel, 2, wx.ALL|wx.EXPAND, 5)
+
+        self.ros_packages = defaultdict(list)
+        for p in rospkg.get_ros_paths():
+            print '\t PATH:', p
+            launch_files = RoslaunchInspector.list_launch_files(p)
+            for lf in launch_files:
+                pkg = get_dir_pkg(os.path.dirname(lf))
+                self.ros_packages[pkg[1]].append(os.path.split(lf)[-1])
+
+        for k in sorted(self.ros_packages.keys(), reverse=True):
+            self.pkg_list.Insert(k, 0)
+
+        self.Bind(wx.EVT_LISTBOX, self.on_list_box_event, self.pkg_list)
+        self.Bind(wx.EVT_LISTBOX, self.on_list_box_event, self.launch_list)
+        self.pkg_input.Bind(wx.EVT_TEXT, self.on_type)
+        self.panel.SetSizer(main_sizer)
+
         self.graph_view.register_select_callback(self.select_cb)
 
+    def on_type(self, event):
+        pkg = event.GetString()
+        #RoslaunchInspector.list_launch_files(pkg)
 
 
-        if not dot_filename is None:
-            pass
-        else:
-            package = 'openni2_launch'
-            launch_file = 'openni2.launch'
-
-            package = 'cob_people_detection'
-            launch_file = 'people_detection_with_viewer.launch'
-
-            #package = 'mdr_moveit_cob'
-            #launch_file = 'demo.launch'
-
-            launch_file_paths = find_resource(package, launch_file)
-            # print launch_file_paths
-
-            for path in launch_file_paths:
-                launch_file_obj = LaunchFileParser(path)
-                # self.root = RILaunch(launch_file_obj)
-                self.root = DotRoslaunch(RoslaunchElement(RoslaunchElement.load_xml(path)))
-            pass
-
-        self.update_graph()
-        self.RequestUserAttention()
-        self.graph_view.zoom_to_fit()
+    def on_list_box_event(self, event):
+        if event.GetEventObject() is self.pkg_list:
+            self.launch_list.Clear()
+            pk_name = event.GetEventObject().GetStringSelection()
+            if self.ros_packages.has_key(pk_name):
+                launch_files = self.ros_packages[pk_name]
+                print launch_files
+                for l in sorted(launch_files, reverse=True):
+                    self.launch_list.Insert(l, 0)
+        elif event.GetEventObject() is self.launch_list:
+            if self.launch_list.GetStringSelection() != '':
+                self.inspect_launch(self.pkg_list.GetStringSelection(), self.launch_list.GetStringSelection())
 
     def select_cb(self, item, event):
         """Event: Click to select a graph node."""
@@ -500,12 +538,24 @@ class RoslaunchInspector(wx.Frame):
             #self.graph_view.ge
             if isinstance(el, DotElement):
                 print item.url
-                item.highlight=None
-                self.selected = item.url
-                self.graph_view.set_highlight(item.item)
+                #item.highlight=None
+                #self.selected = item.url
+                #self.graph_view.set_highlight(item.item)
                 #if 'file' in el.roslaunch_element.attributes.keys():
-                print call(["subl", el.roslaunch_element.attributes['file']['resolved']])
-                self.update_graph()
+                print call(["atom", el.find_launch_file()])
+                #os.spawnlp(0, 'gedit %s' %el.find_launch_file())
+                #self.update_graph()
+
+
+    def inspect_launch(self, package, launch_file):
+        self.selected = []
+        launch_file_paths = find_resource(package, launch_file)
+        for path in launch_file_paths:
+            self.root = DotRoslaunch(RoslaunchElement(RoslaunchElement.load_xml(path)))
+        self.update_graph()
+        self.RequestUserAttention()
+        self.graph_view.zoom_to_fit()
+
 
     def update_graph(self):
         t = '''digraph {
