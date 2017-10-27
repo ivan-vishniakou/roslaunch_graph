@@ -11,13 +11,9 @@ from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
 from trace_launch_files import LaunchFileParser
 from launch_parser import RoslaunchElement
 
-
 from collections import defaultdict
 import rospkg
 import os
-
-
-
 
 
 class HTML(object):
@@ -431,8 +427,25 @@ class DotRosparam(DotGraphElement):
 
     def get_header(self):
         path = self.roslaunch_element.attributes['file']['resolved']
-        return [HTML.labelled_cell(self.roslaunch_element.type, rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1],
-                                  self.roslaunch_element.attributes['command']['resolved'], input_port='head%s' % self.uid)]
+        if self.roslaunch_element.text != '':
+            return [
+                HTML.labelled_cell(
+                    self.roslaunch_element.type,
+                    self.roslaunch_element.text,
+                    self.roslaunch_element.attributes['param']['resolved'],
+                    input_port='head%s' % self.uid
+                )
+            ]
+
+        else:
+            return [
+                HTML.labelled_cell(
+                    self.roslaunch_element.type,
+                    (rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1]),
+                    self.roslaunch_element.attributes['command']['resolved'],
+                    input_port='head%s' % self.uid
+                )
+            ]
 
 
 class DotRoslaunch(DotGraphElement):
@@ -514,7 +527,10 @@ class RoslaunchInspector(wx.Frame):
         self.graph_view.register_select_callback(self.select_cb)
 
     def on_type(self, event):
-        pkg = event.GetString()
+        filter = event.GetString()
+        self.pkg_list.Clear()
+        for k in sorted([k for k in self.ros_packages.keys() if filter in k], reverse=True):
+            self.pkg_list.Insert(k, 0)
         #RoslaunchInspector.list_launch_files(pkg)
 
 
@@ -578,5 +594,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    # assert len(sys.argv) == 2, 'dot filename input needed'
     main(sys.argv)
