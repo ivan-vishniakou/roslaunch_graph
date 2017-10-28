@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
 import sys
 import wxversion
-wxversion.select("2.8")
+wxversion.select('2.8')
 import wx
 import xdot
 from subprocess import call
 import subprocess
 from roslib.packages import find_resource, get_pkg_dir, get_dir_pkg, \
     InvalidROSPkgException, list_pkgs_by_path
-from trace_launch_files import LaunchFileParser
-from launch_parser import RoslaunchElement
+from ros_tools.launch_parser import RoslaunchElement
 
 from collections import defaultdict
 import rospkg
@@ -225,7 +224,7 @@ class DotElement(object):
     def find_by_uid(self, uid):
         if self.uid == uid:
             return self
-        
+
         for c in self.children:
             ri_el = c.find_by_uid(uid)
             if ri_el is not None:
@@ -439,14 +438,24 @@ class DotRosparam(DotGraphElement):
             ]
 
         else:
-            return [
-                HTML.labelled_cell(
-                    self.roslaunch_element.type,
-                    (rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1]),
-                    self.roslaunch_element.attributes['command']['resolved'],
-                    input_port='head%s' % self.uid
-                )
-            ]
+            if path:
+                return [
+                    HTML.labelled_cell(
+                        self.roslaunch_element.type,
+                        (rospkg.get_package_name(path) + '&emsp;' + path.split('/')[-1]),
+                        self.roslaunch_element.attributes['command']['resolved'],
+                        input_port='head%s' % self.uid
+                    )
+                ]
+            else:
+                return [
+                    HTML.labelled_cell(
+                        self.roslaunch_element.type,
+                        'unresolved path %s'%path,
+                        self.roslaunch_element.attributes['command']['resolved'],
+                        input_port='head%s' % self.uid
+                    )
+                ]
 
 
 class DotRoslaunch(DotGraphElement):
@@ -559,7 +568,12 @@ class RoslaunchInspector(wx.Frame):
                 #self.selected = item.url
                 #self.graph_view.set_highlight(item.item)
                 #if 'file' in el.roslaunch_element.attributes.keys():
-                print call(["atom", el.find_launch_file()])
+                for editor in ['atoma', 'subl','xdg-open']:
+                    try:
+                        call([editor, el.find_launch_file()])
+                        break
+                    except OSError as e:
+                        print "%s doesn't work.." % editor
                 #os.spawnlp(0, 'gedit %s' %el.find_launch_file())
                 #self.update_graph()
 

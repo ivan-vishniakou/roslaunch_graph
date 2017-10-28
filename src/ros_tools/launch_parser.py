@@ -30,7 +30,7 @@ class RoslaunchElement(object):
         launch_root.attrib['file'] = {'resolved':launch_file_path}
         return launch_root
 
-    def __init__(self, xml, input_agr_dict={}, path=None):
+    def __init__(self, xml, input_agr_dict=defaultdict(lambda: None), path=None):
         self.children = []
         if path is not None:
             self.path = path
@@ -131,7 +131,7 @@ class RoslaunchElement(object):
 
 
 if __name__ == '__main__':
-    package = 'mdr_moveit_cob'
+    package = 'pr2_moveit_config'
     launch_file = 'demo.launch'
 
     launch_file_path = find_resource(package, launch_file)[0]
