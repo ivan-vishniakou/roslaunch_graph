@@ -6,6 +6,12 @@ tools to make life with ROS easier
 rosrun ros_tools trace_launch_files <package_name> <launch_file_name>
 ```
 
+## Roslaunch inspector
+Visual explorer of the launch files:
+```
+rosrun ros_tools roslaunch_inspector
+```
+
 ## Package creator
 Based on catkin-tools, creates packages based on the team's guidelines.
 
