@@ -30,7 +30,7 @@ class RoslaunchElement(object):
         launch_root.attrib['file'] = {'resolved':launch_file_path}
         return launch_root
 
-    def __init__(self, xml, input_agr_dict=defaultdict(lambda: None), path=None):
+    def __init__(self, xml, input_agr_dict=defaultdict(lambda: '__'), path=None):
         self.children = []
         if path is not None:
             self.path = path
