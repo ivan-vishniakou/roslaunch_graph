@@ -564,18 +564,12 @@ class RoslaunchInspector(wx.Frame):
             #self.graph_view.ge
             if isinstance(el, DotElement):
                 print item.url
-                #item.highlight=None
-                #self.selected = item.url
-                #self.graph_view.set_highlight(item.item)
-                #if 'file' in el.roslaunch_element.attributes.keys():
-                for editor in ['atoma', 'subl','xdg-open']:
+                for editor in ['atom', 'subl', 'xdg-open']:
                     try:
                         call([editor, el.find_launch_file()])
-                        break
+                        return
                     except OSError as e:
                         print "%s doesn't work.." % editor
-                #os.spawnlp(0, 'gedit %s' %el.find_launch_file())
-                #self.update_graph()
 
 
     def inspect_launch(self, package, launch_file):
